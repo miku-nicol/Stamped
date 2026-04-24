@@ -1,0 +1,475 @@
+openapi: 3.0.0
+info:
+  title: Stamped Authentication API
+  version: 1.0.0
+  description: |
+    Complete authentication API for Stamped App supporting:
+    - Local email/password registration & login
+    - Google OAuth for web browsers
+    - Google Sign-In for mobile apps (Flutter/React Native)
+    - Password reset flow with email verification
+    
+    ## Authentication Flow
+    1. Register or login to receive a JWT token
+    2. Include token in all authenticated requests: `Authorization: Bearer <token>`
+    
+    ## Google Sign-Up for Mobile (Flutter)
+    For mobile apps, implement Google Sign-In natively:
+    
+    1. Add dependency: google_sign_in: ^6.1.0
+    2. Configure with your Web Client ID
+    3. Get ID token and send to /auth/google-mobile
+    4. Backend returns JWT token for authenticated requests
+
+servers:
+  - url: http://localhost:9000/api/v1
+    description: Development Server
+  - url: https://api.stamped.com/api/v1
+    description: Production Server
+
+tags:
+  - name: Authentication
+    description: Local email/password registration and login
+  - name: Google Auth
+    description: Google OAuth for web and mobile apps
+  - name: Password Reset
+    description: Forgot password and reset password flow
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from login/registration. Format: Bearer <token>
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+        - password
+        - confirmPassword
+      properties:
+        firstName:
+          type: string
+          minLength: 2
+          maxLength: 15
+          example: John
+        lastName:
+          type: string
+          minLength: 2
+          maxLength: 15
+          example: Doe
+        email:
+          type: string
+          format: email
+          example: john@example.com
+        password:
+          type: string
+          minLength: 8
+          example: Password123
+        confirmPassword:
+          type: string
+          minLength: 8
+          example: Password123
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: john@example.com
+        password:
+          type: string
+          example: Password123
+
+    GoogleMobileRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Google ID token from mobile SDK (NOT the access token)
+          example: ya29.a0AfH6SOMETHING...
+
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: john@example.com
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - token
+        - newPassword
+        - confirmPassword
+      properties:
+        token:
+          type: string
+          description: Reset token from email link
+          example: abc123def456ghi789
+        newPassword:
+          type: string
+          minLength: 8
+          example: NewPassword123
+        confirmPassword:
+          type: string
+          minLength: 8
+          example: NewPassword123
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            accessToken:
+              type: string
+              description: JWT token for authenticated requests
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+
+    ValidateTokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            valid:
+              type: boolean
+              example: true
+            email:
+              type: string
+              example: john@example.com
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      description: Creates new user account. Password must be 8+ chars and match confirmPassword. Email must be unique.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        201:
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                message: User registration successful
+        400:
+          description: Missing fields or password mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_fields:
+                  value:
+                    success: false
+                    message: Missing required fields: firstName, lastName
+                password_mismatch:
+                  value:
+                    success: false
+                    message: Passwords do not match
+        409:
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Email already registered
+        500:
+          description: Internal server error
+
+  /auth/login:
+    post:
+      summary: Login with email and password
+      description: Returns JWT token for authenticated requests.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                message: Login successful
+        400:
+          description: Missing email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Email and password are required
+        401:
+          description: Invalid credentials or Google account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid:
+                  value:
+                    success: false
+                    message: Invalid email or password
+                google:
+                  value:
+                    success: false
+                    message: Please login using Google
+
+  /auth/auth/google:
+    get:
+      summary: Google OAuth for web browsers
+      description: |
+        Redirect users here for web Google login.
+        After authentication, redirects to FRONTEND_URL/auth/callback?token=jwt_token
+      tags:
+        - Google Auth
+      responses:
+        302:
+          description: Redirects to Google login page
+        500:
+          description: Configuration error
+
+  /auth/auth/google/callback:
+    get:
+      summary: Google OAuth callback (internal)
+      description: Internal endpoint - Google redirects here. Do not call directly.
+      tags:
+        - Google Auth
+      parameters:
+        - in: query
+          name: code
+          schema:
+            type: string
+        - in: query
+          name: error
+          schema:
+            type: string
+      responses:
+        302:
+          description: Redirects to frontend with token
+        400:
+          description: OAuth failed
+
+  /auth/auth/google-mobile:
+    post:
+      summary: Google Sign-In for mobile apps
+      description: |
+        For Flutter/React Native apps.
+        
+        Flutter Implementation:
+        1. final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email', 'profile'])
+        2. final GoogleSignInAccount? googleUser = await _googleSignIn.signIn()
+        3. final GoogleSignInAuthentication googleAuth = await googleUser!.authentication
+        4. final String? idToken = googleAuth.idToken
+        5. Send POST request with body: { "token": idToken }
+        6. Backend returns JWT token - save it for authenticated requests
+      tags:
+        - Google Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleMobileRequest'
+      responses:
+        200:
+          description: Google authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                message: Google authentication successful
+        400:
+          description: Missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Google token is required
+        500:
+          description: Google authentication failed
+
+  /auth/forgot-password:
+    post:
+      summary: Request password reset email
+      description: |
+        Sends reset link to email. Token expires in 30 minutes.
+        Returns success even if email not found (security).
+      tags:
+        - Password Reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        200:
+          description: Reset email sent (or email not found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: If your email is registered, you will receive a reset link
+        400:
+          description: Google account detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: This account uses Google login. Please sign in with Google.
+
+  /auth/reset-password:
+    post:
+      summary: Reset password using token
+      description: |
+        Resets password using token from email.
+        Token must be valid and not expired.
+      tags:
+        - Password Reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        200:
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Password has been reset successfully
+        400:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                mismatch:
+                  value:
+                    success: false
+                    message: Passwords do not match
+                weak:
+                  value:
+                    success: false
+                    message: Password must be at least 8 characters
+                expired:
+                  value:
+                    success: false
+                    message: Invalid or expired reset token
+
+  /auth/validate-reset-token/{token}:
+    get:
+      summary: Validate reset token
+      description: |
+        Check if reset token is valid before showing reset form.
+        Frontend should call this when reset page loads.
+      tags:
+        - Password Reset
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+          description: Reset token from email
+      responses:
+        200:
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateTokenResponse'
+              example:
+                success: true
+                data:
+                  valid: true
+                  email: john@example.com
+        400:
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Invalid or expired reset token
