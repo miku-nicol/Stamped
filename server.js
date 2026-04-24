@@ -31,5 +31,6 @@ connectDB()
 const PORT= process.env.PORT 
 
 app.listen(PORT, () =>{
-    console.log(`server running on port ${process.env.BASE_URL}`)
+console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📚 Swagger docs: /api-docs`);
 })
