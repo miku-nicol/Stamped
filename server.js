@@ -28,8 +28,8 @@ app.get("/", (req, res) =>{
  
 
 connectDB()
-const BASE_URL= process.env.BASE_URL 
+const PORT= process.env.PORT 
 
-app.listen(BASE_URL, () =>{
-    console.log(`server running on ${BASE_URL}`)
+app.listen(PORT, () =>{
+    console.log(`server running on port ${process.env.BASE_URL}`)
 })
