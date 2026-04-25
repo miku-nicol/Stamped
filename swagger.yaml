@@ -24,7 +24,7 @@ info:
 servers:
   - url: http://localhost:9000/api/v1
     description: Development Server
-  - url: https://api.stamped.com/api/v1
+  - url: https://stamped-pkrb.onrender.com
     description: Production Server
 
 tags:
