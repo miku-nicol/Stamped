@@ -10,26 +10,7 @@ const { configure } = require("./src/modules/users/userPassport");
 const swaggerDocument = YAML.load("./swagger.yaml");
 const app= express()
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://stamped-flutter-app.vercel.app",
-    "https://stamped-pkrb.onrender.com"
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    } else {
-      console.warn("Blocked by CORS:", origin);
-      return callback(null, false); // 👈 important fix
-    }
-  },
-  credentials: true,
-};
-
+ app.use(cors());
 app.use(express.json())
 
 
