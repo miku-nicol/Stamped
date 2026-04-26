@@ -12,30 +12,23 @@ const app= express()
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://stamped-flutter-app.vercel.app"
+  "https://stamped-flutter-app.vercel.app",
+    "https://stamped-pkrb.onrender.com"
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error("Not allowed by CORS"));
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      console.warn("Blocked by CORS:", origin);
+      return callback(null, false); // 👈 important fix
+    }
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
-    "Origin"
-  ],
-  exposedHeaders: ["Authorization"],
-  maxAge: 86400
 };
-
-app.use(cors(corsOptions));
-
 
 app.use(express.json())
 
