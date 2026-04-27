@@ -271,7 +271,7 @@ paths:
                     success: false
                     message: Please login using Google
 
-  /auth/auth/google:
+  /auth/google:
     get:
       summary: Google OAuth for web browsers
       description: |
@@ -306,7 +306,7 @@ paths:
         400:
           description: OAuth failed
 
-  /auth/auth/google-mobile:
+  /auth/google-mobile:
     post:
       summary: Google Sign-In for mobile apps
       description: |

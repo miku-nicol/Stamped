@@ -284,7 +284,7 @@ projectSchema.methods.addActivity = async function(action, description, performe
   await this.save();
 };
 
-Add new deliverable (beyond original scope)
+//Add new deliverable (beyond original scope)
 projectSchema.methods.addDeliverable = async function(description, performedByName) {
   // Reopen project if it was completed
   if (this.status === 'completed') {

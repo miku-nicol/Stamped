@@ -114,40 +114,70 @@ const  googleCallback = (req, res) => {
 
 const googleMobileAuth = async (req, res) => {
     try {
-        const { token } = req.body;
-        
-        if (!token) {
+        const { idToken, accessToken } = req.body;
+
+        let googleId, email, firstName, lastName;
+
+        // ✅ CASE 1: ID TOKEN (Preferred)
+        if (idToken) {
+            const { OAuth2Client } = require('google-auth-library');
+            const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+            const ticket = await client.verifyIdToken({
+                idToken,
+                audience: process.env.GOOGLE_CLIENT_ID
+            });
+
+            const payload = ticket.getPayload();
+
+            googleId = payload.sub;
+            email = payload.email;
+            firstName = payload.given_name;
+            lastName = payload.family_name;
+
+        // ✅ CASE 2: ACCESS TOKEN (Flutter Web fallback)
+        } else if (accessToken) {
+            const axios = require("axios");
+
+            const response = await axios.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`
+                    }
+                }
+            );
+
+            const data = response.data;
+
+            googleId = data.sub;
+            email = data.email;
+            firstName = data.given_name;
+            lastName = data.family_name;
+
+        } else {
             return res.status(400).json({
                 success: false,
-                message: "Google token is required"
+                message: "idToken or accessToken is required"
             });
         }
-        
-        const { OAuth2Client } = require('google-auth-library');
-        const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-        
-        const ticket = await googleClient.verifyIdToken({
-            idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID
-        });
-        
-        const payload = ticket.getPayload();
-        const { sub: googleId, email, given_name: firstName, family_name: lastName } = payload;
-        
+
         const jwtToken = await userService.registerGoogleUser(
             googleId,
             email,
             firstName,
             lastName
         );
-        
+
         return res.status(200).json({
             success: true,
             data: { accessToken: jwtToken },
             message: "Google authentication successful"
         });
+
     } catch (error) {
         console.error("Google mobile auth error:", error.message);
+
         return res.status(500).json({
             success: false,
             message: "Google authentication failed"
