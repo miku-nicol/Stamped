@@ -22,22 +22,39 @@ const registerUser = async (firstName, lastName, email, password) => {
     });
 
     const token = jwt.sign(
-        { userId: user._id, email: user.email },
+        { userId: user._id, email: user.email,
+            firstName: user.firstName, lastName: user.lastName
+         },
         process.env.JWT_SECRET,
         { expiresIn: "2d" }
     );
-    return token;
+    return {
+        token: token,
+        user: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            initials: `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+        }
+    }
+
 }
 
 const registerGoogleUser = async (googleId, email, firstName, lastName) => {
     let user = await userRepository.findByGoogleId(googleId);
     if(user) {
         const token = jwt.sign(
-            { userId: user._id, email: user.email },
+            { userId: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName },
             process.env.JWT_SECRET,
             { expiresIn: "2d" }
         );
-        return token;
+        return {
+            token,
+            user: {
+                firstName: user.firstName,
+                lastName: user.lastName,
+                initials: `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+            }
+        };
     }
 
     const existingUser = await userRepository.findByEmail(email);
@@ -59,12 +76,19 @@ const registerGoogleUser = async (googleId, email, firstName, lastName) => {
     }
 
     const token = jwt.sign(
-        { userId: user._id, email: user.email },
+        { userId: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName },
         process.env.JWT_SECRET,
         { expiresIn: "2d" }
     )
 
-    return token;
+    return {
+        token,
+        user: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            initials: `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+        }
+    };
 }
 
 const loginUser = async (email, password) => {
@@ -85,11 +109,18 @@ const loginUser = async (email, password) => {
         throw new Error("Invalid email or password");
     }
     const token = jwt.sign(
-        { userId: user._id, email: user.email },
+        { userId: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName },
         process.env.JWT_SECRET,
         { expiresIn: "2d"}
     )
-    return token;
+    return {
+        token: token,
+        user: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            initials: `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+        }
+    };
 };
 
 const forgotPassword = async (email) => {

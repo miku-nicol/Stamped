@@ -9,29 +9,32 @@ const activitySchema = new Schema({
     required: true,
     enum: [
       'project_created',
-      'client_confirmed',
-      'deliverable_submitted',
+      'client_confirmed_via_OTP',
+       'deliverable_submitted',
       'deliverable_approved',
       'deliverable_rejected',
-      'payment_updated',
+      'payment_status_updated',
        'deliverable_added',
         'project_reopened',
-      'project_completed'
+      'project_completed',
+      'deliverable_updated',
+     
     ]
   },
-  description: {
-    type: String,
-    required: true
-  },
+   
   performedBy: {
     type: String,
-    enum: ['freelancer', 'client'],
+    enum: ['freelancer', 'client', 'system'],
     required: true
   },
   performedByName: {
     type: String,
     required: true
   },
+  description: {
+  type: String,
+  required: true
+},
   timestamp: {
     type: Date,
     default: Date.now
@@ -53,13 +56,15 @@ const deliverableSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected'],
-    default: 'pending'
+    enum: ['approved', 'rejected','pending_approval'],
+    default: 'pending_approval'
   },
-  isOriginalScope: {
-    type: Boolean,
-    default: true
-  },
+   
+  deliverableType: {
+  type: String,
+  enum: ['original', 'extra'],
+  default: 'original'
+},
   fileUrl: {
     type: String,
     default: null
@@ -72,10 +77,19 @@ const deliverableSchema = new Schema({
     type: Date,
     default: null
   },
-  approvalNote: {
-    type: String,
-    default: null
-  },
+   
+  version: {
+  type: Number,
+  default: 1
+},
+previousVersions: [
+  {
+    description: String,
+    fileUrl: String,
+    submittedAt: Date,
+    version: Number
+  }
+],
   
 });
 
@@ -124,6 +138,11 @@ const projectSchema = new Schema(
       required: [true, 'Project amount is required'],
       min: [0, 'Amount cannot be negative']
     },
+    currency: {
+      type: String,
+      default: 'NGN',
+      enum: ['NGN', 'USD']
+    },
      
     
     // Deliverables (array of deliverables)
@@ -136,7 +155,7 @@ const projectSchema = new Schema(
     // Project Status
     status: {
       type: String,
-      enum: ['draft', 'pending', 'active', 'completed', 'cancelled'],
+      enum: ['draft', 'pending_confirmation', 'active', 'completed'],
       default: 'draft'
     },
     
@@ -162,7 +181,8 @@ const projectSchema = new Schema(
     },
     clientConfirmationOTP: {
     type: String,
-    select: false  // Never return in API responses
+    select: false, 
+
   },
    clientConfirmationOTPExpires: {
     type: Date,
@@ -177,6 +197,26 @@ const projectSchema = new Schema(
       type: Date,
       default: null
     },
+
+    // Add to project schema
+clientSessionToken: {
+  type: String,
+  select: false,
+  default: null
+},
+clientSessionExpiresAt: {
+  type: Date,
+  default: null
+},
+clientLastActivityAt: {
+  type: Date,
+  default: null
+},
+sessionTrustLevel: {
+  type: String,
+  enum: ['high', 'medium', 'low'],
+  default: 'low'
+},
     
     // Payment Tracking
     paymentStatus: {
@@ -184,10 +224,7 @@ const projectSchema = new Schema(
       enum: ['unpaid', 'partial', 'paid'],
       default: 'unpaid'
     },
-    paymentUpdatedAt: {
-      type: Date,
-      default: null
-    },
+     
     
     // Timeline Dates
     dueDate: {
@@ -221,6 +258,17 @@ const projectSchema = new Schema(
       type: String,
       default: null
     },
+
+  agreedSnapshot: {
+    deliverables: [
+    {
+      description: String,
+      deliverableType: String
+    }
+  ],
+    amount: Number,
+    dueDate: Date
+},
     
     // Activity Timeline
     activities: [activitySchema]
@@ -231,6 +279,7 @@ const projectSchema = new Schema(
       transform: (doc, ret) => {
         delete ret.__v;
         delete ret.clientLinkToken; // Don't expose token in regular responses
+        delete ret.clientSessionToken;
         return ret;
       }
     }
@@ -244,10 +293,11 @@ projectSchema.index({ clientLinkToken: 1 });
 projectSchema.index({ status: 1, dueDate: 1 });
 projectSchema.index({ clientEmail: 1 });
 projectSchema.index({ shareableId: 1 });
+projectSchema.index({ clientSessionToken: 1 }, { sparse: true });
 
 // Generate unique client link token before save
-projectSchema.pre('save', async function(next) {
-  if (this.isModified('clientLinkToken') && !this.clientLinkToken) {
+projectSchema.pre('save', function(next) {
+  if (!this.clientLinkToken) {
     const crypto = require('crypto');
     this.clientLinkToken = crypto.randomBytes(32).toString('hex');
   }
@@ -267,86 +317,5 @@ projectSchema.pre('save', function(next) {
   next();
 });
 
-projectSchema.methods.isOriginalDeliverable = function(index) {
-  return this.deliverables[index]?.isOriginalScope || false;
-};
-
-// Add activity helper method
-projectSchema.methods.addActivity = async function(action, description, performedBy, performedByName, metadata = {}) {
-  this.activities.push({
-    action,
-    description,
-    performedBy,
-    performedByName,
-    timestamp: new Date(),
-    metadata
-  });
-  await this.save();
-};
-
-//Add new deliverable (beyond original scope)
-projectSchema.methods.addDeliverable = async function(description, performedByName) {
-  // Reopen project if it was completed
-  if (this.status === 'completed') {
-    this.status = 'active';
-    await this.addActivity(
-      'project_reopened',
-      `Project reopened with new deliverable: ${description.substring(0, 50)}...`,
-      'freelancer',
-      performedByName,
-      { newDeliverable: description }
-    );
-  }
-  
-  this.deliverables.push({
-    description,
-    status: 'pending',
-    isOriginalScope: false,
-    version: 1
-  });
-  
-  await this.addActivity(
-    'deliverable_added',
-    `New deliverable added: ${description.substring(0, 50)}...`,
-    'freelancer',
-    performedByName,
-    { isOriginalScope: false }
-  );
-  
-  await this.save();
-  return this;
-};
-
-// Update deliverable (iteration/revision)
-projectSchema.methods.updateDeliverable = async function(index, newDescription, fileUrl, performedByName) {
-  const deliverable = this.deliverables[index];
-  if (!deliverable) throw new Error("Deliverable not found");
-  
-  // Save previous version
-  deliverable.previousVersions.push({
-    description: deliverable.description,
-    fileUrl: deliverable.fileUrl,
-    submittedAt: deliverable.submittedAt,
-    version: deliverable.version
-  });
-  
-  // Update to new version
-  deliverable.description = newDescription || deliverable.description;
-  deliverable.fileUrl = fileUrl || deliverable.fileUrl;
-  deliverable.version += 1;
-  deliverable.submittedAt = new Date();
-  deliverable.status = 'pending'; // Reset status on update
-  
-  await this.addActivity(
-    'deliverable_updated',
-    `Deliverable "${deliverable.description.substring(0, 50)}..." updated (v${deliverable.version})`,
-    'freelancer',
-    performedByName,
-    { deliverableIndex: index, version: deliverable.version }
-  );
-  
-  await this.save();
-  return this;
-};
 
 module.exports = mongoose.model("Project", projectSchema);

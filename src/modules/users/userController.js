@@ -28,7 +28,7 @@ const register = async (req, res) =>{
                 message: "Password do not match"
             })
         }
-        const token = await userService.registerUser(
+        const result = await userService.registerUser(
             firstName,
             lastName,
             email,
@@ -37,8 +37,12 @@ const register = async (req, res) =>{
         );
         return res.status(201).json({
             success: true,
-            data: { accessToken: token },
-            message: "User registration successful"
+            data: { accessToken: result.token,
+                user: result.user
+             },
+            message: "User registration successful",
+             
+
         });
     } catch (error) {
         console.log("Registration failed", error.message)
@@ -69,14 +73,17 @@ const login = async (req, res) => {
 
         }
 
-        const token = await userService.loginUser(
+        const result = await userService.loginUser(
             email,
             password
         )
         return res.status(200).json({
             success: true,
-            data: { accessToken: token },
-            message: "Login successful"
+            data: { accessToken: result.token,
+                user: result.user
+             },
+            message: "Login successful",
+            
         })
     } catch(error){
         console.log('login failed', error.message)
@@ -162,7 +169,7 @@ const googleMobileAuth = async (req, res) => {
             });
         }
 
-        const jwtToken = await userService.registerGoogleUser(
+        const result = await userService.registerGoogleUser(
             googleId,
             email,
             firstName,
@@ -171,7 +178,9 @@ const googleMobileAuth = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: { accessToken: jwtToken },
+            data: { accessToken: result.token, 
+                user: result.user
+             },
             message: "Google authentication successful"
         });
 
