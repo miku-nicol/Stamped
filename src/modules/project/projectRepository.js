@@ -14,6 +14,14 @@ const findById = (projectId) => {
   return Project.findById(projectId);
 };
 
+const findByIdAndOwner = async (projectId, freelancerId) => {
+  const project = await Project.findOne({
+    _id: projectId,
+    freelancerId: freelancerId
+  });
+  return project;
+};
+
 const findByClientLinkToken = (token) => {
   return Project.findOne({ clientLinkToken: token });
 };
@@ -24,7 +32,7 @@ const findByShareableId = (shareableId) => {
 
 const findByFreelancer = async (freelancerId, options = {}) => {
   const {
-    status,
+    status ='all',
     page = 1,
     limit = 10,
     sortBy = "createdAt",
@@ -33,7 +41,9 @@ const findByFreelancer = async (freelancerId, options = {}) => {
 
   const query = { freelancerId };
 
-  if (status) query.status = status;
+ if (status && status !== 'all') {
+    query.status = status;
+  }
 
   const skip = (page - 1) * limit;
   const sort = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
@@ -43,8 +53,23 @@ const findByFreelancer = async (freelancerId, options = {}) => {
     Project.countDocuments(query),
   ]);
 
+  const formattedProjects = projects.map(project => ({
+    _id: project._id,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    clientPhone: project.clientPhone,
+    totalAmount: project.totalAmount,
+    dueDate: project.dueDate,
+    status: project.status,
+    deliverablesCount: project.deliverables?.length || 0,
+    approvedCount: project.deliverables?.filter(d => d.status === 'approved').length || 0,
+    createdAt: project.createdAt,
+    clientConfirmed: project.clientConfirmed,
+    areTermsLocked: project.areTermsLocked
+  }));
+
   return {
-    projects,
+    projects: formattedProjects,
     pagination: {
       page,
       limit,
@@ -67,13 +92,84 @@ const deleteProjectById = (projectId) => {
   return Project.findByIdAndDelete(projectId);
 };
 
+// get frelancer sata
+const getProjectStats = async (freelancerId) => {
+  const [total, draft, pendingConfirmation, active, completed, cancelled] = await Promise.all([
+    Project.countDocuments({ freelancerId }),
+    Project.countDocuments({ freelancerId, status: 'draft' }),
+    Project.countDocuments({ freelancerId, status: 'pending_confirmation' }),
+    Project.countDocuments({ freelancerId, status: 'active' }),
+    Project.countDocuments({ freelancerId, status: 'completed' }),
+    Project.countDocuments({ freelancerId, status: 'cancelled' })
+  ]);
+}
+
+const updateProjectBasicInfo = async (projectId, updateData) => {
+  const allowedUpdates = ['projectName', 'clientName', 'clientEmail', 'clientPhone', 'dueDate',];
+  const updates = {};
+
+  Object.keys(updateData).forEach(key => {
+    if (allowedUpdates.includes(key)) {
+      updates[key]= updateData[key];
+    }
+  });
+
+  return Project.findByIdAndUpdate(
+    projectId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+};
+
+
+const updateDeliverableFields = async (projectId, index, updateData) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+  if (!project.deliverables[index]) return null;
+  
+  const allowedFields = ['item', 'amount'];
+  
+  allowedFields.forEach(field => {
+    if (updateData[field] !== undefined) {
+      project.deliverables[index][field] = updateData[field];
+    }
+  });
+  
+  // Recalculate total project amount
+  project.amount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
+  await project.save();
+  return project;
+};
+
+/**
+ * Delete deliverable from project
+ */
+const deleteDeliverable = async (projectId, index) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+  if (!project.deliverables[index]) {
+    throw new Error('Deliverable not found');
+  };
+  
+  project.deliverables.splice(index, 1);
+  
+  // Recalculate total project amount
+  project.amount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
+  await project.save({ validateBeforeSave: true });
+  return project;
+};
+
+
+
 // ==================== DELIVERABLES ====================
 
 const pushDeliverable = (projectId, deliverableData) => {
   return Project.findByIdAndUpdate(
     projectId,
     { $push: { deliverables: deliverableData } },
-    { new: true }
+ { returnDocument: 'after' }
   );
 };
 
@@ -83,6 +179,10 @@ const updateDeliverableByIndex = async (projectId, index, updateData) => {
   if (!project.deliverables?.[index]) return null;
 
   Object.assign(project.deliverables[index], updateData);
+
+  // Recalculate project total amount
+  project.amount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
 
   await project.save();
   return project;
@@ -100,17 +200,80 @@ const setDeliverableStatus = (projectId, index, status, approvedAt) => {
   return Project.findByIdAndUpdate(
     projectId,
     { $set: update },
-    { new: true }
+    { returnDocument: 'after' }
   );
+};
+
+const areAllDeliverablesApproved = async (projectId) => {
+  const project = await Project.findById(projectId);
+  if (!project) return false;
+  
+  return project.deliverables.every(d => d.status === 'approved');
+};
+
+const approveDeliverable = async (projectId, index) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+  if (!project.deliverables[index]) return null;
+  
+  project.deliverables[index].status = 'approved';
+  project.deliverables[index].approvedAt = new Date();
+  
+  await project.save();
+  return project;
+};
+
+const submitDeliverable = async (projectId, index, fileUrl) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+  if (!project.deliverables[index]) return null;
+  
+  project.deliverables[index].fileUrl = fileUrl;
+  project.deliverables[index].submittedAt = new Date();
+  project.deliverables[index].status = 'pending_approval';
+  
+  await project.save();
+  return project;
+};
+
+// ==================== REQUEST REVISION (instead of reject) ====================
+
+/**
+ * Request revision for deliverable
+ */
+const requestRevision = async (projectId, index, revisionNotes) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+  if (!project.deliverables[index]) return null;
+  
+  // Change status to 'pending' (waiting for freelancer to revise)
+  project.deliverables[index].status = 'pending';
+  project.deliverables[index].revisionNotes = revisionNotes;
+  project.deliverables[index].revisionRequestedAt = new Date();
+  
+  await project.save();
+  return project;
+};
+
+/**
+ * Get projects needing revisions (for freelancer dashboard)
+ */
+const getProjectsNeedingRevisions = async (freelancerId) => {
+  return Project.find({
+    freelancerId: freelancerId,
+    'deliverables.status': 'pending',
+    'deliverables.revisionNotes': { $exists: true, $ne: null }
+  }).sort({ updatedAt: -1 });
 };
 
 // ==================== ACTIVITY ====================
 
 const pushActivity = (projectId, activity) => {
+  console.log("Repository: pushActivity called");
   return Project.findByIdAndUpdate(
     projectId,
     { $push: { activities: activity } },
-    { new: true }
+ { returnDocument: 'after' }
   );
 };
 
@@ -123,7 +286,7 @@ const setOTP = (token, otp, expiresAt) => {
       clientConfirmationOTP: otp,
       clientConfirmationOTPExpires: expiresAt,
     },
-    { new: true }
+   { returnDocument: 'after' }
   );
 };
 
@@ -134,7 +297,7 @@ const clearOTP = (token) => {
       clientConfirmationOTP: null,
       clientConfirmationOTPExpires: null,
     },
-    { new: true }
+    { returnDocument: 'after' }
   );
 };
 
@@ -142,6 +305,17 @@ const clearOTP = (token) => {
 
 const findForConfirmation = (token) => {
   return Project.findOne({ clientLinkToken: token });
+};
+
+const updateClientLinkToken = async (projectId, token) => {
+  return Project.findByIdAndUpdate(
+    projectId,
+    {
+      clientLinkToken: token,
+      clientLinkGeneratedAt: new Date()
+    },
+    { new: true }
+  );
 };
 
 // ==================== SESSION ====================
@@ -154,7 +328,7 @@ const setSession = (token, sessionToken, expiresAt) => {
       clientSessionExpiresAt: expiresAt,
       clientLastActivityAt: new Date(),
     },
-    { new: true }
+  { returnDocument: 'after' }
   );
 };
 
@@ -170,7 +344,7 @@ const updateSessionActivity = (token, sessionToken) => {
   return Project.findOneAndUpdate(
     { clientLinkToken: token, clientSessionToken: sessionToken },
     { clientLastActivityAt: new Date() },
-    { new: true }
+   { returnDocument: 'after' }
   );
 };
 
@@ -183,11 +357,11 @@ const updatePayment = (projectId, paymentStatus) => {
       paymentStatus,
       paymentUpdatedAt: new Date(),
     },
-    { new: true }
+  { returnDocument: 'after' }
   );
 };
 
-// ==================== QUERIES ====================
+// ==================== QUERIES =======  =============
 
 const findByClientEmail = (email) => {
   return Project.find({ clientEmail: email })
@@ -214,11 +388,22 @@ module.exports = {
   findByFreelancer,
   updateProjectById,
   deleteProjectById,
+  getProjectStats,
+  findByIdAndOwner,
 
   // Deliverables
   pushDeliverable,
   updateDeliverableByIndex,
   setDeliverableStatus,
+  areAllDeliverablesApproved,
+  approveDeliverable,
+  submitDeliverable,
+  requestRevision,
+  getProjectsNeedingRevisions,
+  deleteDeliverable,
+  updateDeliverableFields,
+  updateProjectBasicInfo,
+  
 
   // Activity
   pushActivity,
@@ -229,6 +414,7 @@ module.exports = {
 
   // Confirmation
   findForConfirmation,
+  updateClientLinkToken,
 
   // Session
   setSession,

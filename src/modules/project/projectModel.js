@@ -9,24 +9,17 @@ const activitySchema = new Schema({
     required: true,
     enum: [
       'project_created',
-      'client_confirmed_via_OTP',
-       'deliverable_submitted',
+      'project_confirmed',
+      'deliverable_completed',
+      'deliverable_revised',
       'deliverable_approved',
-      'deliverable_rejected',
-      'payment_status_updated',
-       'deliverable_added',
-        'project_reopened',
+      'revision_requested',
+      'project_reopened',
       'project_completed',
-      'deliverable_updated',
-     
+    
     ]
   },
    
-  performedBy: {
-    type: String,
-    enum: ['freelancer', 'client', 'system'],
-    required: true
-  },
   performedByName: {
     type: String,
     required: true
@@ -47,17 +40,23 @@ const activitySchema = new Schema({
 
 // Define deliverable schema
 const deliverableSchema = new Schema({
-  description: {
+  item: {
     type: String,
-    required: [true, 'Deliverable description is required'],
+    required: [true, 'Item name is required'],
     trim: true,
-    minlength: [5, 'Deliverable must be at least 5 characters'],
-    maxlength: [500, 'Deliverable cannot exceed 500 characters']
+    minlength: [3, 'Item name must be at least 3 characters'],
+    maxlength: [500, 'Item name cannot exceed 200 characters']
+  },
+  
+  amount: {
+    type: Number,
+    required: [true, 'Deliverable amount is required'],
+    min: [0, 'Amount cannot be negative']
   },
   status: {
     type: String,
-    enum: ['approved', 'rejected','pending_approval'],
-    default: 'pending_approval'
+    enum: ['approved', 'rejected','pending'],
+    default: 'pending'
   },
    
   deliverableType: {
@@ -84,7 +83,9 @@ const deliverableSchema = new Schema({
 },
 previousVersions: [
   {
+    name: String,
     description: String,
+     amount: Number,
     fileUrl: String,
     submittedAt: Date,
     version: Number
@@ -129,13 +130,13 @@ const projectSchema = new Schema(
     clientPhone: {
       type: String,
       trim: true,
+      required: true,
       default: null
     },
     
     // Project Financials
-    amount: {
+    totalAmount: {
       type: Number,
-      required: [true, 'Project amount is required'],
       min: [0, 'Amount cannot be negative']
     },
     currency: {
@@ -155,7 +156,7 @@ const projectSchema = new Schema(
     // Project Status
     status: {
       type: String,
-      enum: ['draft', 'pending_confirmation', 'active', 'completed'],
+      enum: ['draft', 'pending', 'active', 'completed'],
       default: 'draft'
     },
     
@@ -289,24 +290,19 @@ sessionTrustLevel: {
 // Indexes for performance
 projectSchema.index({ freelancerId: 1, status: 1 });
 projectSchema.index({ freelancerId: 1, createdAt: -1 });
-projectSchema.index({ clientLinkToken: 1 });
 projectSchema.index({ status: 1, dueDate: 1 });
 projectSchema.index({ clientEmail: 1 });
-projectSchema.index({ shareableId: 1 });
 projectSchema.index({ clientSessionToken: 1 }, { sparse: true });
 
 // Generate unique client link token before save
-projectSchema.pre('save', function(next) {
+projectSchema.pre('save', function () {
+  // Generate token
   if (!this.clientLinkToken) {
     const crypto = require('crypto');
     this.clientLinkToken = crypto.randomBytes(32).toString('hex');
   }
-  next();
-});
 
-// Auto-update status based on deliverables and confirmation
-projectSchema.pre('save', function(next) {
-  // If all deliverables are approved and project is active, mark as completed
+  // Auto-complete project
   if (this.status === 'active' && this.deliverables.length > 0) {
     const allApproved = this.deliverables.every(d => d.status === 'approved');
     if (allApproved && this.status !== 'completed') {
@@ -314,8 +310,15 @@ projectSchema.pre('save', function(next) {
       this.completedAt = new Date();
     }
   }
-  next();
-});
 
+  // Auto-calculate amount
+  if (this.isModified('deliverables')) {
+    const totalAmount = this.deliverables.reduce(
+      (sum, d) => sum + (d.amount || 0),
+      0
+    );
+    this.totalAmount = totalAmount;
+  }
+});
 
 module.exports = mongoose.model("Project", projectSchema);

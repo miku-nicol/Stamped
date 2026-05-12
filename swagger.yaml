@@ -1,13 +1,16 @@
 openapi: 3.0.0
 info:
-  title: Stamped Authentication API
-  version: 1.0.0
+  title: Stamped Authentication & Project Management API
+  version: 2.0.0
   description: |
-    Complete authentication API for Stamped App supporting:
+    Complete authentication & Project Management API for Stamped App supporting:
     - Local email/password registration & login
     - Google OAuth for web browsers
     - Google Sign-In for mobile apps (Flutter/React Native)
     - Password reset flow with email verification
+    - Project Management (CRUD)
+    - Deliverables Management
+    - Client Link Generation
     
     ## Authentication Flow
     1. Register or login to receive a JWT token
@@ -34,6 +37,12 @@ tags:
     description: Google OAuth for web and mobile apps
   - name: Password Reset
     description: Forgot password and reset password flow
+  - name: Projects
+    description: Project CRUD operations
+  - name: Deliverables
+    description: Manage project deliverables
+  - name: Client Links
+    description: Generate and manage client shareable links
 
 components:
   securitySchemes:
@@ -44,6 +53,7 @@ components:
       description: JWT token from login/registration. Format: Bearer <token>
 
   schemas:
+    # ==================== AUTH SCHEMAS ====================
     RegisterRequest:
       type: object
       required:
@@ -130,6 +140,249 @@ components:
           minLength: 8
           example: NewPassword123
 
+    # ==================== PROJECT SCHEMAS ====================
+    CreateProjectRequest:
+      type: object
+      required:
+        - projectName
+        - clientName
+        - clientEmail
+        - dueDate
+        - deliverables
+      properties:
+        projectName:
+          type: string
+          example: Website Redesign
+        clientName:
+          type: string
+          example: John Doe
+        clientEmail:
+          type: string
+          format: email
+          example: john@example.com
+        clientPhone:
+          type: string
+          example: 08012345678
+        currency:
+          type: string
+          enum: [NGN, USD, EUR, GBP]
+          default: NGN
+          example: NGN
+        dueDate:
+          type: string
+          format: date
+          example: 2024-12-31
+        deliverables:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - item
+              - amount
+            properties:
+              item:
+                type: string
+                example: Homepage Design
+              amount:
+                type: number
+                example: 200000
+
+    AddDeliverableRequest:
+      type: object
+      required:
+        - item
+        - amount
+      properties:
+        item:
+          type: string
+          example: Mobile App Development
+        amount:
+          type: number
+          example: 250000
+        isExtra:
+          type: boolean
+          default: false
+          description: Mark as extra work beyond original scope
+
+    EditProjectRequest:
+      type: object
+      properties:
+        projectName:
+          type: string
+          example: Updated Project Name
+        clientName:
+          type: string
+          example: Updated Client Name
+        clientEmail:
+          type: string
+          format: email
+          example: updated@example.com
+        clientPhone:
+          type: string
+          example: 08123456789
+        dueDate:
+          type: string
+          format: date
+          example: 2025-01-15
+
+    EditDeliverableRequest:
+      type: object
+      properties:
+        item:
+          type: string
+          example: Updated Deliverable Name
+        amount:
+          type: number
+          example: 300000
+
+    ProjectResponse:
+      type: object
+      properties:
+        _id:
+          type: string
+        projectName:
+          type: string
+        clientName:
+          type: string
+        clientEmail:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        dueDate:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [draft, pending_confirmation, active, completed]
+        deliverables:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              item:
+                type: string
+              amount:
+                type: number
+              status:
+                type: string
+              submittedAt:
+                type: string
+                format: date-time
+              approvedAt:
+                type: string
+                format: date-time
+              fileUrl:
+                type: string
+              version:
+                type: integer
+        deliverablesSummary:
+          type: object
+          properties:
+            total:
+              type: integer
+            approved:
+              type: integer
+            pending:
+              type: integer
+        activities:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              description:
+                type: string
+              performedBy:
+                type: string
+              performedByName:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+        clientConfirmed:
+          type: boolean
+        clientConfirmedAt:
+          type: string
+          format: date-time
+        areTermsLocked:
+          type: boolean
+        paymentStatus:
+          type: string
+          enum: [unpaid, partial, paid]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectsListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            projects:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProjectResponse'
+            pagination:
+              type: object
+              properties:
+                page:
+                  type: integer
+                limit:
+                  type: integer
+                total:
+                  type: integer
+                totalPages:
+                  type: integer
+                hasNextPage:
+                  type: boolean
+                hasPrevPage:
+                  type: boolean
+
+    ClientLinkResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            clientLink:
+              type: string
+              example: https://stamped.com/client/project/abc123...
+            clientLinkToken:
+              type: string
+        message:
+          type: string
+
+    DeleteProjectResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            projectName:
+              type: string
+            message:
+              type: string
+        message:
+          type: string
+
     SuccessResponse:
       type: object
       properties:
@@ -171,6 +424,7 @@ components:
               example: john@example.com
 
 paths:
+  # ==================== AUTHENTICATION ENDPOINTS ====================
   /auth/register:
     post:
       summary: Register a new user
@@ -190,35 +444,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-              example:
-                success: true
-                data:
-                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-                message: User registration successful
         400:
           description: Missing fields or password mismatch
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                missing_fields:
-                  value:
-                    success: false
-                    message: Missing required fields: firstName, lastName
-                password_mismatch:
-                  value:
-                    success: false
-                    message: Passwords do not match
         409:
           description: Email already registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                message: Email already registered
         500:
           description: Internal server error
 
@@ -241,49 +470,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-              example:
-                success: true
-                data:
-                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-                message: Login successful
         400:
           description: Missing email or password
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                message: Email and password are required
         401:
           description: Invalid credentials or Google account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                invalid:
-                  value:
-                    success: false
-                    message: Invalid email or password
-                google:
-                  value:
-                    success: false
-                    message: Please login using Google
 
   /auth/google:
     get:
       summary: Google OAuth for web browsers
-      description: |
-        Redirect users here for web Google login.
-        After authentication, redirects to FRONTEND_URL/auth/callback?token=jwt_token
+      description: Redirect users here for web Google login.
       tags:
         - Google Auth
       responses:
         302:
           description: Redirects to Google login page
-        500:
-          description: Configuration error
 
   /auth/auth/google/callback:
     get:
@@ -291,34 +491,14 @@ paths:
       description: Internal endpoint - Google redirects here. Do not call directly.
       tags:
         - Google Auth
-      parameters:
-        - in: query
-          name: code
-          schema:
-            type: string
-        - in: query
-          name: error
-          schema:
-            type: string
       responses:
         302:
           description: Redirects to frontend with token
-        400:
-          description: OAuth failed
 
   /auth/google-mobile:
     post:
       summary: Google Sign-In for mobile apps
-      description: |
-        For Flutter/React Native apps.
-        
-        Flutter Implementation:
-        1. final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email', 'profile'])
-        2. final GoogleSignInAccount? googleUser = await _googleSignIn.signIn()
-        3. final GoogleSignInAuthentication googleAuth = await googleUser!.authentication
-        4. final String? idToken = googleAuth.idToken
-        5. Send POST request with body: { "token": idToken }
-        6. Backend returns JWT token - save it for authenticated requests
+      description: For Flutter/React Native apps. Send Google ID token to get JWT.
       tags:
         - Google Auth
       requestBody:
@@ -334,29 +514,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-              example:
-                success: true
-                data:
-                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-                message: Google authentication successful
         400:
           description: Missing token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                message: Google token is required
         500:
           description: Google authentication failed
 
   /auth/forgot-password:
     post:
       summary: Request password reset email
-      description: |
-        Sends reset link to email. Token expires in 30 minutes.
-        Returns success even if email not found (security).
+      description: Sends reset link to email. Returns success even if email not found (security).
       tags:
         - Password Reset
       requestBody:
@@ -367,34 +533,14 @@ paths:
               $ref: '#/components/schemas/ForgotPasswordRequest'
       responses:
         200:
-          description: Reset email sent (or email not found)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: If your email is registered, you will receive a reset link
+          description: Reset email sent
         400:
           description: Google account detected
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                message: This account uses Google login. Please sign in with Google.
 
   /auth/reset-password:
     post:
       summary: Reset password using token
-      description: |
-        Resets password using token from email.
-        Token must be valid and not expired.
+      description: Resets password using token from email.
       tags:
         - Password Reset
       requestBody:
@@ -406,43 +552,13 @@ paths:
       responses:
         200:
           description: Password reset successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: Password has been reset successfully
         400:
           description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                mismatch:
-                  value:
-                    success: false
-                    message: Passwords do not match
-                weak:
-                  value:
-                    success: false
-                    message: Password must be at least 8 characters
-                expired:
-                  value:
-                    success: false
-                    message: Invalid or expired reset token
 
   /auth/validate-reset-token/{token}:
     get:
       summary: Validate reset token
-      description: |
-        Check if reset token is valid before showing reset form.
-        Frontend should call this when reset page loads.
+      description: Check if reset token is valid before showing reset form.
       tags:
         - Password Reset
       parameters:
@@ -451,7 +567,6 @@ paths:
           required: true
           schema:
             type: string
-          description: Reset token from email
       responses:
         200:
           description: Token is valid
@@ -459,17 +574,376 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidateTokenResponse'
-              example:
-                success: true
-                data:
-                  valid: true
-                  email: john@example.com
         400:
           description: Invalid or expired token
+
+  # ==================== PROJECT ENDPOINTS ====================
+  /projects:
+    get:
+      summary: Get all projects for freelancer
+      description: Returns paginated list of projects with status filtering.
+      tags:
+        - Projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [all, draft, pending, active, completed]
+          default: all
+          description: Filter by project status
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+          default: 1
+          description: Page number for pagination
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          default: 10
+          description: Number of items per page
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [createdAt, dueDate, projectName, amount]
+          default: createdAt
+          description: Field to sort by
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+          default: desc
+          description: Sort order
+      responses:
+        200:
+          description: Projects retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                message: Invalid or expired reset token
+                $ref: '#/components/schemas/ProjectsListResponse'
+        401:
+          description: Unauthorized
+        500:
+          description: Internal server error
+
+    post:
+      summary: Create a new project
+      description: Creates a new project with deliverables. Minimum one deliverable required.
+      tags:
+        - Projects
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+            example:
+              projectName: Website Redesign
+              clientName: John Doe
+              clientEmail: john@example.com
+              clientPhone: 08012345678
+              dueDate: 2024-12-31
+              deliverables:
+                - item: Homepage Design
+                  amount: 200000
+                - item: Mobile Layout
+                  amount: 150000
+      responses:
+        201:
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Validation error - missing fields or invalid data
+        401:
+          description: Unauthorized
+        500:
+          description: Internal server error
+
+  /projects/{projectId}:
+    get:
+      summary: Get project by ID
+      description: Returns complete project details including deliverables and activities.
+      tags:
+        - Projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+          description: Project ID
+      responses:
+        200:
+          description: Project retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        401:
+          description: Unauthorized
+        403:
+          description: You don't have permission to view this project
+        404:
+          description: Project not found
+        500:
+          description: Internal server error
+
+    put:
+      summary: Edit project basic information
+      description: Updates project name, client info, or due date. Only allowed for draft and pending confirmation projects.
+      tags:
+        - Projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditProjectRequest'
+            example:
+              projectName: Updated Project Name
+              dueDate: 2025-01-15
+      responses:
+        200:
+          description: Project updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Cannot edit project in current status
+        401:
+          description: Unauthorized
+        403:
+          description: No permission to edit
+        404:
+          description: Project not found
+        500:
+          description: Internal server error
+
+    delete:
+      summary: Delete a project
+      description: Permanently deletes a project. Only allowed for draft and pending confirmation projects.
+      tags:
+        - Projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Project deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteProjectResponse'
+        400:
+          description: Cannot delete project in current status
+        401:
+          description: Unauthorized
+        403:
+          description: No permission to delete
+        404:
+          description: Project not found
+        500:
+          description: Internal server error
+
+  # ==================== DELIVERABLE ENDPOINTS ====================
+  /projects/{projectId}/deliverable:
+    post:
+      summary: Add a deliverable to project
+      description: Adds a new deliverable to an existing project.
+      tags:
+        - Deliverables
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDeliverableRequest'
+            example:
+              item: SEO Optimization
+              amount: 80000
+              isExtra: false
+      responses:
+        200:
+          description: Deliverable added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Validation error
+        401:
+          description: Unauthorized
+        404:
+          description: Project not found
+        403:
+          description: Cannot add deliverable - terms locked
+        500:
+          description: Internal server error
+
+  /projects/{projectId}/deliverable/{index}:
+    put:
+      summary: Edit a deliverable
+      description: Updates deliverable item name or amount.
+      tags:
+        - Deliverables
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            type: integer
+          description: Deliverable index in array (0-based)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditDeliverableRequest'
+            example:
+              item: Updated Deliverable Name
+              amount: 300000
+      responses:
+        200:
+          description: Deliverable updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Cannot edit deliverable in current status
+        401:
+          description: Unauthorized
+        404:
+          description: Project or deliverable not found
+        500:
+          description: Internal server error
+
+  # ==================== CLIENT LINK ENDPOINTS ====================
+  /projects/{projectId}/generate-link:
+    post:
+      summary: Generate client shareable link
+      description: |
+        Generates a unique shareable link for the client to view and confirm the project.
+        Once generated, the project terms become locked and cannot be edited.
+      tags:
+        - Client Links
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Client link generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientLinkResponse'
+        400:
+          description: Link already generated or cannot generate
+        401:
+          description: Unauthorized
+        403:
+          description: No permission
+        404:
+          description: Project not found
+        500:
+          description: Internal server error
