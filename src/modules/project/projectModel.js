@@ -10,12 +10,15 @@ const activitySchema = new Schema({
     enum: [
       'project_created',
       'project_confirmed',
+      'deliverable_submitted',
       'deliverable_completed',
       'deliverable_revised',
       'deliverable_approved',
       'revision_requested',
       'project_reopened',
       'project_completed',
+      'client_confirmed_via_OTP',
+      'client_link_generated'
     
     ]
   },
@@ -55,7 +58,7 @@ const deliverableSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['approved', 'rejected','pending'],
+    enum: ['approved', 'revision_requested','pending','completed'],
     default: 'pending'
   },
    
@@ -64,10 +67,8 @@ const deliverableSchema = new Schema({
   enum: ['original', 'extra'],
   default: 'original'
 },
-  fileUrl: {
-    type: String,
-    default: null
-  },
+  
+  
   submittedAt: {
     type: Date,
     default: null
@@ -83,14 +84,38 @@ const deliverableSchema = new Schema({
 },
 previousVersions: [
   {
-    name: String,
-    description: String,
+    item: String,
      amount: Number,
-    fileUrl: String,
+    supportingLinks: [String],
+     submissionNotes: String,
     submittedAt: Date,
+     approvedAt: Date,
     version: Number
   }
 ],
+submissionNotes: { 
+  type: String, 
+  default: null,
+  maxlength: [1000, 'Submission notes cannot exceed 1000 characters']
+ },  
+supportingLinks: [
+  { 
+    type: String,
+    trim: true
+  }],                   
+revisionRequestedAt: { 
+  type: Date, 
+  default: null 
+},   
+revisionRequestedBy: {
+    type: String,
+    default: null
+  },
+  approvedBy: {
+    type: String,
+    default: null
+  },
+
   
 });
 
@@ -156,10 +181,12 @@ const projectSchema = new Schema(
     // Project Status
     status: {
       type: String,
-      enum: ['draft', 'pending', 'active', 'completed'],
-      default: 'draft'
+      enum: [ 'pending', 'active', 'completed'],
+      default: 'pending'
     },
     
+    finalizedAt: { type: Date, default: null },    
+    revisionWindowExpiresAt: { type: Date, default: null }, 
     // Client Confirmation
     clientConfirmed: {
       type: Boolean,

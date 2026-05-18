@@ -471,8 +471,6 @@ const generateClientLink = async (req, res) => {
   }
 };
 
-// Get client project by token (PUBLIC - no authentication)
- 
 const getClientProject = async (req, res) => {
   try {
     const { token } = req.params;
@@ -530,4 +528,317 @@ const getProjectById = async (req, res) => {
   }
 };
 
-module.exports = { createProject, addDeliverable, getProjects, getProjectStats, getClientProject, generateClientLink, getProjectById, getProjectEditInfo, editProjectBasicInfo, editDeliverable, deleteDeliverable, deleteProject };
+const sendConfirmationOTP = async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    const result = await projectService.sendConfirmationOTP(token);
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        expiresIn: result.expiresIn
+      },
+      message: result.message
+    });
+  } catch (error) {
+    console.error("Send confirmation OTP error:", error.message);
+    
+    if (error.message === "Invalid project link") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message === "Project already confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send verification code"
+    });
+  }
+};
+
+const resendConfirmationOTP = async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    const result = await projectService.resendConfirmationOTP(token);
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        expiresIn: result.expiresIn
+      },
+      message: result.message
+    });
+  } catch (error) {
+    console.error("Resend confirmation OTP error:", error.message);
+    
+    if (error.message === "Invalid project link") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message === "Project already confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: "Failed to resend verification code"
+    });
+  }
+};
+
+
+const confirmProject = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { otp } = req.body;
+    
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification code is required"
+      });
+    }
+    
+    
+    const result = await projectService.confirmProject(
+      token,
+      otp
+    );
+    
+    return res.status(200).json({
+      success: true,
+      data: result.project,
+      message: result.message
+    });
+  } catch (error) {
+    console.error("Confirm project error:", error.message);
+    
+    if (error.message === "Invalid project link") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message === "Project already confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message === "Invalid OTP code") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    if (error.message === "OTP has expired. Please request a new code.") {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: "Failed to confirm project"
+    });
+  }
+};
+
+
+const submitDeliverable = async (req, res) => {
+  try {
+    const { projectId, index } = req.params;
+    const { supportingLinks, submissionNotes } = req.body;
+    
+    if (!supportingLinks || supportingLinks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one supporting link is required"
+      });
+    }
+    
+    // URL validation
+    const urlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+    for (const link of supportingLinks) {
+      if (!urlPattern.test(link) && !link.startsWith('http')) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid URL format: ${link}`
+        });
+      }
+    }
+    
+    const project = await projectService.submitDeliverableForApproval(
+      projectId,
+      parseInt(index),
+      { supportingLinks, submissionNotes: submissionNotes || null },
+      req.user.userId,
+      `${req.user.firstName} ${req.user.lastName}`
+    );
+    
+    return res.status(200).json({
+      success: true,
+      data: { project },
+      message: "Deliverable completed successfully"
+    });
+  } catch (error) {
+    console.error("Submit deliverable error:", error.message);
+    
+    if (error.message === "Project not found") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "Project must be active to submit deliverables") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "At least one supporting link is required") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    return res.status(500).json({ success: false, message: "Failed to submit deliverable" });
+  }
+};
+
+/**
+ * Client approves deliverable
+ */
+const clientApproveDeliverable = async (req, res) => {
+  try {
+    const { token, index } = req.params;
+    const { clientName } = req.body;
+    
+    const project = await projectService.approveDeliverable(
+      token,
+      parseInt(index),
+      clientName || 'Client',
+      clientName
+    );
+    
+    return res.status(200).json({
+      success: true,
+      data: { project },
+      message: "Deliverable approved successfully"
+    });
+  } catch (error) {
+    console.error("Client approve deliverable error:", error.message);
+    
+    if (error.message === "Invalid project link") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "Deliverable already approved") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    return res.status(500).json({ success: false, message: "Failed to approve deliverable" });
+  }
+};
+
+/**
+ * Client requests revision
+ */
+const clientRequestRevision = async (req, res) => {
+  try {
+    const { token, index } = req.params;
+    const { revisionReason, clientName } = req.body;
+    
+    if (!revisionReason || revisionReason.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a reason for revision"
+      });
+    }
+    
+    const project = await projectService.requestRevision(
+      token,
+      parseInt(index),
+      revisionReason,
+      clientName || 'Client'
+    );
+    
+    return res.status(200).json({
+      success: true,
+      data: { project },
+      message: "Revision requested successfully"
+    });
+  } catch (error) {
+    console.error("Client request revision error:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to request revision" });
+  }
+};
+
+/**
+ * Freelancer submits revised deliverable
+ */
+const submitRevisedDeliverable = async (req, res) => {
+  try {
+    const { projectId, index } = req.params;
+    const { supportingLinks, submissionNotes } = req.body;
+    
+    if (!supportingLinks || supportingLinks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one supporting link is required"
+      });
+    }
+    
+    const project = await projectService.submitRevisedDeliverable(
+      projectId,
+      parseInt(index),
+      { supportingLinks, submissionNotes: submissionNotes || null },
+      req.user.userId
+    );
+    
+    return res.status(200).json({
+      success: true,
+      data: { project },
+      message: "Revised deliverable submitted successfully"
+    });
+  } catch (error) {
+    console.error("Submit revised deliverable error:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to submit revised deliverable" });
+  }
+};
+
+
+
+module.exports = { 
+  createProject, 
+  addDeliverable,
+   getProjects,
+    getProjectStats, 
+    getClientProject, 
+    generateClientLink, 
+    getProjectById, 
+    getProjectEditInfo, 
+    editProjectBasicInfo, 
+    editDeliverable, 
+    deleteDeliverable, 
+    deleteProject,
+    confirmProject,
+    resendConfirmationOTP,
+    sendConfirmationOTP,
+    submitDeliverable
+
+  };

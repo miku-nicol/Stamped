@@ -9,20 +9,19 @@ info:
     - Google Sign-In for mobile apps (Flutter/React Native)
     - Password reset flow with email verification
     - Project Management (CRUD)
-    - Deliverables Management
-    - Client Link Generation
+    - Deliverables Management (Add, Edit, Delete, Submit, Approve, Request Revision)
+    - Client Link Generation & Confirmation (OTP-based)
     
     ## Authentication Flow
     1. Register or login to receive a JWT token
     2. Include token in all authenticated requests: `Authorization: Bearer <token>`
     
-    ## Google Sign-Up for Mobile (Flutter)
-    For mobile apps, implement Google Sign-In natively:
-    
-    1. Add dependency: google_sign_in: ^6.1.0
-    2. Configure with your Web Client ID
-    3. Get ID token and send to /auth/google-mobile
-    4. Backend returns JWT token for authenticated requests
+    ## Client Confirmation Flow
+    1. Freelancer generates client link
+    2. Client opens link and requests OTP
+    3. Client receives OTP via email
+    4. Client enters OTP and confirms project
+    5. Project becomes Active and terms are locked
 
 servers:
   - url: http://localhost:9000/api/v1
@@ -40,9 +39,13 @@ tags:
   - name: Projects
     description: Project CRUD operations
   - name: Deliverables
-    description: Manage project deliverables
+    description: Manage project deliverables (Add, Edit, Delete, Submit)
   - name: Client Links
-    description: Generate and manage client shareable links
+    description: Generate client shareable links
+  - name: Client Confirmation
+    description: Client OTP verification and project confirmation
+  - name: Client Actions
+    description: Client actions on project (approve deliverables, request revisions)
 
 components:
   securitySchemes:
@@ -236,6 +239,54 @@ components:
           type: number
           example: 300000
 
+    SubmitDeliverableRequest:
+      type: object
+      required:
+        - supportingLinks
+      properties:
+        supportingLinks:
+          type: array
+          items:
+            type: string
+          example: ["https://drive.google.com/file/d/abc123", "https://figma.com/file/xyz789"]
+          description: At least one supporting link is required
+        submissionNotes:
+          type: string
+          example: Here is the completed homepage design with responsive layout
+          description: Optional notes about the submission
+
+    RequestRevisionRequest:
+      type: object
+      required:
+        - revisionReason
+      properties:
+        revisionReason:
+          type: string
+          example: Please update the colors to match our brand guidelines
+        clientName:
+          type: string
+          example: John Doe
+
+    ApproveDeliverableRequest:
+      type: object
+      properties:
+        clientName:
+          type: string
+          example: John Doe
+
+    ConfirmProjectRequest:
+      type: object
+      required:
+        - otp
+      properties:
+        otp:
+          type: string
+          example: "123456"
+          description: 6-digit OTP sent to client email
+        clientName:
+          type: string
+          example: John Doe
+
     ProjectResponse:
       type: object
       properties:
@@ -247,7 +298,7 @@ components:
           type: string
         clientEmail:
           type: string
-        amount:
+        totalAmount:
           type: number
         currency:
           type: string
@@ -256,7 +307,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [draft, pending_confirmation, active, completed]
+          enum: [pending, active, completed]
         deliverables:
           type: array
           items:
@@ -270,25 +321,21 @@ components:
                 type: number
               status:
                 type: string
+                enum: [pending, approved, revision_requested]
+              supportingLinks:
+                type: array
+                items:
+                  type: string
+              submissionNotes:
+                type: string
               submittedAt:
                 type: string
                 format: date-time
               approvedAt:
                 type: string
                 format: date-time
-              fileUrl:
-                type: string
               version:
                 type: integer
-        deliverablesSummary:
-          type: object
-          properties:
-            total:
-              type: integer
-            approved:
-              type: integer
-            pending:
-              type: integer
         activities:
           type: array
           items:
@@ -366,6 +413,20 @@ components:
         message:
           type: string
 
+    OTPResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            expiresIn:
+              type: integer
+              description: OTP expiry time in minutes
+        message:
+          type: string
+
     DeleteProjectResponse:
       type: object
       properties:
@@ -380,6 +441,36 @@ components:
               type: string
             message:
               type: string
+        message:
+          type: string
+
+    DeleteDeliverableResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            projectName:
+              type: string
+            deliverables:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  item:
+                    type: string
+                  amount:
+                    type: number
+                  status:
+                    type: string
+            totalAmount:
+              type: number
         message:
           type: string
 
@@ -428,7 +519,6 @@ paths:
   /auth/register:
     post:
       summary: Register a new user
-      description: Creates new user account. Password must be 8+ chars and match confirmPassword. Email must be unique.
       tags:
         - Authentication
       requestBody:
@@ -448,13 +538,10 @@ paths:
           description: Missing fields or password mismatch
         409:
           description: Email already registered
-        500:
-          description: Internal server error
 
   /auth/login:
     post:
       summary: Login with email and password
-      description: Returns JWT token for authenticated requests.
       tags:
         - Authentication
       requestBody:
@@ -470,35 +557,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-        400:
-          description: Missing email or password
         401:
-          description: Invalid credentials or Google account
-
-  /auth/google:
-    get:
-      summary: Google OAuth for web browsers
-      description: Redirect users here for web Google login.
-      tags:
-        - Google Auth
-      responses:
-        302:
-          description: Redirects to Google login page
-
-  /auth/auth/google/callback:
-    get:
-      summary: Google OAuth callback (internal)
-      description: Internal endpoint - Google redirects here. Do not call directly.
-      tags:
-        - Google Auth
-      responses:
-        302:
-          description: Redirects to frontend with token
+          description: Invalid credentials
 
   /auth/google-mobile:
     post:
       summary: Google Sign-In for mobile apps
-      description: For Flutter/React Native apps. Send Google ID token to get JWT.
       tags:
         - Google Auth
       requestBody:
@@ -514,15 +578,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-        400:
-          description: Missing token
-        500:
-          description: Google authentication failed
 
   /auth/forgot-password:
     post:
       summary: Request password reset email
-      description: Sends reset link to email. Returns success even if email not found (security).
       tags:
         - Password Reset
       requestBody:
@@ -534,13 +593,10 @@ paths:
       responses:
         200:
           description: Reset email sent
-        400:
-          description: Google account detected
 
   /auth/reset-password:
     post:
       summary: Reset password using token
-      description: Resets password using token from email.
       tags:
         - Password Reset
       requestBody:
@@ -552,36 +608,11 @@ paths:
       responses:
         200:
           description: Password reset successful
-        400:
-          description: Validation error
-
-  /auth/validate-reset-token/{token}:
-    get:
-      summary: Validate reset token
-      description: Check if reset token is valid before showing reset form.
-      tags:
-        - Password Reset
-      parameters:
-        - in: path
-          name: token
-          required: true
-          schema:
-            type: string
-      responses:
-        200:
-          description: Token is valid
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidateTokenResponse'
-        400:
-          description: Invalid or expired token
 
   # ==================== PROJECT ENDPOINTS ====================
   /projects:
     get:
       summary: Get all projects for freelancer
-      description: Returns paginated list of projects with status filtering.
       tags:
         - Projects
       security:
@@ -591,38 +622,18 @@ paths:
           name: status
           schema:
             type: string
-            enum: [all, draft, pending, active, completed]
+            enum: [all, pending, active, completed]
           default: all
-          description: Filter by project status
         - in: query
           name: page
           schema:
             type: integer
-            minimum: 1
           default: 1
-          description: Page number for pagination
         - in: query
           name: limit
           schema:
             type: integer
-            minimum: 1
-            maximum: 100
           default: 10
-          description: Number of items per page
-        - in: query
-          name: sortBy
-          schema:
-            type: string
-            enum: [createdAt, dueDate, projectName, amount]
-          default: createdAt
-          description: Field to sort by
-        - in: query
-          name: sortOrder
-          schema:
-            type: string
-            enum: [asc, desc]
-          default: desc
-          description: Sort order
       responses:
         200:
           description: Projects retrieved successfully
@@ -630,14 +641,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProjectsListResponse'
-        401:
-          description: Unauthorized
-        500:
-          description: Internal server error
 
     post:
       summary: Create a new project
-      description: Creates a new project with deliverables. Minimum one deliverable required.
       tags:
         - Projects
       security:
@@ -648,17 +654,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateProjectRequest'
-            example:
-              projectName: Website Redesign
-              clientName: John Doe
-              clientEmail: john@example.com
-              clientPhone: 08012345678
-              dueDate: 2024-12-31
-              deliverables:
-                - item: Homepage Design
-                  amount: 200000
-                - item: Mobile Layout
-                  amount: 150000
       responses:
         201:
           description: Project created successfully
@@ -676,17 +671,10 @@ paths:
                         $ref: '#/components/schemas/ProjectResponse'
                   message:
                     type: string
-        400:
-          description: Validation error - missing fields or invalid data
-        401:
-          description: Unauthorized
-        500:
-          description: Internal server error
 
   /projects/{projectId}:
     get:
       summary: Get project by ID
-      description: Returns complete project details including deliverables and activities.
       tags:
         - Projects
       security:
@@ -697,7 +685,6 @@ paths:
           required: true
           schema:
             type: string
-          description: Project ID
       responses:
         200:
           description: Project retrieved successfully
@@ -713,20 +700,9 @@ paths:
                     properties:
                       project:
                         $ref: '#/components/schemas/ProjectResponse'
-                  message:
-                    type: string
-        401:
-          description: Unauthorized
-        403:
-          description: You don't have permission to view this project
-        404:
-          description: Project not found
-        500:
-          description: Internal server error
 
     put:
       summary: Edit project basic information
-      description: Updates project name, client info, or due date. Only allowed for draft and pending confirmation projects.
       tags:
         - Projects
       security:
@@ -743,40 +719,12 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/EditProjectRequest'
-            example:
-              projectName: Updated Project Name
-              dueDate: 2025-01-15
       responses:
         200:
           description: Project updated successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: object
-                    properties:
-                      project:
-                        $ref: '#/components/schemas/ProjectResponse'
-                  message:
-                    type: string
-        400:
-          description: Cannot edit project in current status
-        401:
-          description: Unauthorized
-        403:
-          description: No permission to edit
-        404:
-          description: Project not found
-        500:
-          description: Internal server error
 
     delete:
       summary: Delete a project
-      description: Permanently deletes a project. Only allowed for draft and pending confirmation projects.
       tags:
         - Projects
       security:
@@ -794,22 +742,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeleteProjectResponse'
-        400:
-          description: Cannot delete project in current status
-        401:
-          description: Unauthorized
-        403:
-          description: No permission to delete
-        404:
-          description: Project not found
-        500:
-          description: Internal server error
 
   # ==================== DELIVERABLE ENDPOINTS ====================
   /projects/{projectId}/deliverable:
     post:
       summary: Add a deliverable to project
-      description: Adds a new deliverable to an existing project.
       tags:
         - Deliverables
       security:
@@ -826,42 +763,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AddDeliverableRequest'
-            example:
-              item: SEO Optimization
-              amount: 80000
-              isExtra: false
       responses:
         200:
           description: Deliverable added successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: object
-                    properties:
-                      project:
-                        $ref: '#/components/schemas/ProjectResponse'
-                  message:
-                    type: string
-        400:
-          description: Validation error
-        401:
-          description: Unauthorized
-        404:
-          description: Project not found
-        403:
-          description: Cannot add deliverable - terms locked
-        500:
-          description: Internal server error
 
   /projects/{projectId}/deliverable/{index}:
     put:
       summary: Edit a deliverable
-      description: Updates deliverable item name or amount.
       tags:
         - Deliverables
       security:
@@ -877,19 +785,74 @@ paths:
           required: true
           schema:
             type: integer
-          description: Deliverable index in array (0-based)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/EditDeliverableRequest'
-            example:
-              item: Updated Deliverable Name
-              amount: 300000
       responses:
         200:
           description: Deliverable updated successfully
+
+    delete:
+      summary: Delete a deliverable
+      tags:
+        - Deliverables
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Deliverable deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteDeliverableResponse'
+        400:
+          description: Cannot delete deliverable in current project status
+        401:
+          description: Unauthorized
+        404:
+          description: Project or deliverable not found
+
+  /projects/{projectId}/deliverable/{index}/submit:
+    post:
+      summary: Submit deliverable for client approval (Freelancer)
+      tags:
+        - Deliverables
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDeliverableRequest'
+      responses:
+        200:
+          description: Deliverable submitted successfully
           content:
             application/json:
               schema:
@@ -905,21 +868,16 @@ paths:
                   message:
                     type: string
         400:
-          description: Cannot edit deliverable in current status
+          description: Validation error - supporting links required or project not active
         401:
           description: Unauthorized
         404:
           description: Project or deliverable not found
-        500:
-          description: Internal server error
 
   # ==================== CLIENT LINK ENDPOINTS ====================
   /projects/{projectId}/generate-link:
     post:
       summary: Generate client shareable link
-      description: |
-        Generates a unique shareable link for the client to view and confirm the project.
-        Once generated, the project terms become locked and cannot be edited.
       tags:
         - Client Links
       security:
@@ -937,13 +895,235 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClientLinkResponse'
-        400:
-          description: Link already generated or cannot generate
-        401:
-          description: Unauthorized
-        403:
-          description: No permission
+
+  # ==================== CLIENT CONFIRMATION ENDPOINTS ====================
+  /projects/client/{token}:
+    get:
+      summary: Client views project (public)
+      tags:
+        - Client Actions
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Project retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        type: object
+                        properties:
+                          _id:
+                            type: string
+                          projectName:
+                            type: string
+                          clientName:
+                            type: string
+                          freelancerName:
+                            type: string
+                          amount:
+                            type: number
+                          dueDate:
+                            type: string
+                          deliverables:
+                            type: array
+                          clientConfirmed:
+                            type: boolean
+                          areTermsLocked:
+                            type: boolean
         404:
-          description: Project not found
-        500:
-          description: Internal server error
+          description: Invalid or expired project link
+
+  /projects/client/{token}/send-otp:
+    post:
+      summary: Send OTP to client email for confirmation
+      tags:
+        - Client Confirmation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: OTP sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OTPResponse'
+        400:
+          description: Project already confirmed
+        404:
+          description: Invalid project link
+
+  /projects/client/{token}/resend-otp:
+    post:
+      summary: Resend OTP to client email
+      tags:
+        - Client Confirmation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: OTP resent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OTPResponse'
+        400:
+          description: Project already confirmed
+        404:
+          description: Invalid project link
+
+  /projects/client/{token}/confirm:
+    post:
+      summary: Confirm project with OTP
+      tags:
+        - Client Confirmation
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmProjectRequest'
+      responses:
+        200:
+          description: Project confirmed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                      projectName:
+                        type: string
+                      status:
+                        type: string
+                      areTermsLocked:
+                        type: boolean
+                      clientConfirmed:
+                        type: boolean
+                      clientConfirmedAt:
+                        type: string
+                  message:
+                    type: string
+        400:
+          description: Invalid OTP, expired OTP, or project already confirmed
+        404:
+          description: Invalid project link
+
+  /projects/client/{token}/deliverable/{index}/approve:
+    post:
+      summary: Client approves a deliverable
+      tags:
+        - Client Actions
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveDeliverableRequest'
+      responses:
+        200:
+          description: Deliverable approved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Cannot approve deliverable
+        404:
+          description: Invalid project link or deliverable not found
+
+  /projects/client/{token}/deliverable/{index}/request-revision:
+    post:
+      summary: Client requests revision on a deliverable
+      tags:
+        - Client Actions
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: index
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestRevisionRequest'
+      responses:
+        200:
+          description: Revision requested successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      project:
+                        $ref: '#/components/schemas/ProjectResponse'
+                  message:
+                    type: string
+        400:
+          description: Revision reason required or cannot request revision
+        404:
+          description: Invalid project link or deliverable not found

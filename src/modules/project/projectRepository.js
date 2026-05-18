@@ -1,10 +1,6 @@
 const Project = require("./projectModel");
 
-// ==================== HELPERS ====================
-
-const toObjectId = (id) => id; // optional place for mongoose.Types.ObjectId
-
-// ==================== BASIC CRUD ====================
+const toObjectId = (id) => id; 
 
 const createProject = (projectData) => {
   return Project.create(projectData);
@@ -23,7 +19,7 @@ const findByIdAndOwner = async (projectId, freelancerId) => {
 };
 
 const findByClientLinkToken = (token) => {
-  return Project.findOne({ clientLinkToken: token });
+  return Project.findOne({ clientLinkToken: token }).select('+clientConfirmationOTP   +clientConfirmationOTPExpires');
 };
 
 const findByShareableId = (shareableId) => {
@@ -92,18 +88,6 @@ const deleteProjectById = (projectId) => {
   return Project.findByIdAndDelete(projectId);
 };
 
-// get frelancer sata
-const getProjectStats = async (freelancerId) => {
-  const [total, draft, pendingConfirmation, active, completed, cancelled] = await Promise.all([
-    Project.countDocuments({ freelancerId }),
-    Project.countDocuments({ freelancerId, status: 'draft' }),
-    Project.countDocuments({ freelancerId, status: 'pending_confirmation' }),
-    Project.countDocuments({ freelancerId, status: 'active' }),
-    Project.countDocuments({ freelancerId, status: 'completed' }),
-    Project.countDocuments({ freelancerId, status: 'cancelled' })
-  ]);
-}
-
 const updateProjectBasicInfo = async (projectId, updateData) => {
   const allowedUpdates = ['projectName', 'clientName', 'clientEmail', 'clientPhone', 'dueDate',];
   const updates = {};
@@ -120,7 +104,6 @@ const updateProjectBasicInfo = async (projectId, updateData) => {
     { new: true, runValidators: true }
   );
 };
-
 
 const updateDeliverableFields = async (projectId, index, updateData) => {
   const project = await Project.findById(projectId);
@@ -142,9 +125,6 @@ const updateDeliverableFields = async (projectId, index, updateData) => {
   return project;
 };
 
-/**
- * Delete deliverable from project
- */
 const deleteDeliverable = async (projectId, index) => {
   const project = await Project.findById(projectId);
   if (!project) return null;
@@ -160,10 +140,6 @@ const deleteDeliverable = async (projectId, index) => {
   await project.save({ validateBeforeSave: true });
   return project;
 };
-
-
-
-// ==================== DELIVERABLES ====================
 
 const pushDeliverable = (projectId, deliverableData) => {
   return Project.findByIdAndUpdate(
@@ -236,11 +212,6 @@ const submitDeliverable = async (projectId, index, fileUrl) => {
   return project;
 };
 
-// ==================== REQUEST REVISION (instead of reject) ====================
-
-/**
- * Request revision for deliverable
- */
 const requestRevision = async (projectId, index, revisionNotes) => {
   const project = await Project.findById(projectId);
   if (!project) return null;
@@ -255,9 +226,7 @@ const requestRevision = async (projectId, index, revisionNotes) => {
   return project;
 };
 
-/**
- * Get projects needing revisions (for freelancer dashboard)
- */
+
 const getProjectsNeedingRevisions = async (freelancerId) => {
   return Project.find({
     freelancerId: freelancerId,
@@ -277,91 +246,7 @@ const pushActivity = (projectId, activity) => {
   );
 };
 
-// ==================== OTP ====================
 
-const setOTP = (token, otp, expiresAt) => {
-  return Project.findOneAndUpdate(
-    { clientLinkToken: token },
-    {
-      clientConfirmationOTP: otp,
-      clientConfirmationOTPExpires: expiresAt,
-    },
-   { returnDocument: 'after' }
-  );
-};
-
-const clearOTP = (token) => {
-  return Project.findOneAndUpdate(
-    { clientLinkToken: token },
-    {
-      clientConfirmationOTP: null,
-      clientConfirmationOTPExpires: null,
-    },
-    { returnDocument: 'after' }
-  );
-};
-
-// ==================== CLIENT CONFIRMATION ====================
-
-const findForConfirmation = (token) => {
-  return Project.findOne({ clientLinkToken: token });
-};
-
-const updateClientLinkToken = async (projectId, token) => {
-  return Project.findByIdAndUpdate(
-    projectId,
-    {
-      clientLinkToken: token,
-      clientLinkGeneratedAt: new Date()
-    },
-    { new: true }
-  );
-};
-
-// ==================== SESSION ====================
-
-const setSession = (token, sessionToken, expiresAt) => {
-  return Project.findOneAndUpdate(
-    { clientLinkToken: token },
-    {
-      clientSessionToken: sessionToken,
-      clientSessionExpiresAt: expiresAt,
-      clientLastActivityAt: new Date(),
-    },
-  { returnDocument: 'after' }
-  );
-};
-
-const findValidSession = (token, sessionToken) => {
-  return Project.findOne({
-    clientLinkToken: token,
-    clientSessionToken: sessionToken,
-    clientSessionExpiresAt: { $gt: new Date() },
-  });
-};
-
-const updateSessionActivity = (token, sessionToken) => {
-  return Project.findOneAndUpdate(
-    { clientLinkToken: token, clientSessionToken: sessionToken },
-    { clientLastActivityAt: new Date() },
-   { returnDocument: 'after' }
-  );
-};
-
-// ==================== PAYMENT ====================
-
-const updatePayment = (projectId, paymentStatus) => {
-  return Project.findByIdAndUpdate(
-    projectId,
-    {
-      paymentStatus,
-      paymentUpdatedAt: new Date(),
-    },
-  { returnDocument: 'after' }
-  );
-};
-
-// ==================== QUERIES =======  =============
 
 const findByClientEmail = (email) => {
   return Project.find({ clientEmail: email })
@@ -377,7 +262,92 @@ const findOverdue = (freelancerId) => {
   }).sort({ dueDate: 1 });
 };
 
-// ==================== EXPORTS ====================
+
+const saveConfirmationOTP = async (projectId, otp, expiresAt) => {
+  return Project.findByIdAndUpdate(
+    projectId,
+    {
+      clientConfirmationOTP: otp,
+      clientConfirmationOTPExpires: expiresAt
+    },
+    { new: true }
+  );
+};
+
+const verifyOTPAndConfirm = async (token, otp, clientName, clientIdentifier) => {
+  const project = await Project.findOne({ clientLinkToken: token });
+  
+  if (!project) {
+    return { success: false, error: "Invalid project link" };
+  }
+  
+  // Check OTP validity
+  if (project.clientConfirmationOTP !== otp) {
+    return { success: false, error: "Invalid OTP code" };
+  }
+  
+  if (new Date() > project.clientConfirmationOTPExpires) {
+    return { success: false, error: "OTP has expired. Please request a new code." };
+  }
+
+   const agreedSnapshot = {
+    deliverables: project.deliverables.map(d => ({
+      item: d.item,
+      amount: d.amount,
+      deliverableType: d.deliverableType
+    })),
+    amount: project.amount,
+    dueDate: project.dueDate,
+    currency: project.currency,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    clientEmail: project.clientEmail
+  };
+   project.agreedSnapshot = agreedSnapshot;
+  project.areTermsLocked = true;
+  project.clientConfirmed = true;
+  project.clientConfirmedAt = new Date();
+  project.clientConfirmedBy = clientName || clientIdentifier;
+  project.status = 'active';
+  
+  // Clear OTP
+  project.clientConfirmationOTP = null;
+  project.clientConfirmationOTPExpires = null;
+  
+  await project.save();
+  
+  return { success: true, project };
+};
+
+const resendConfirmationOTP = async (token, otp, expiresAt) => {
+  return Project.findOneAndUpdate(
+    { clientLinkToken: token },
+    {
+      clientConfirmationOTP: otp,
+      clientConfirmationOTPExpires: expiresAt
+    },
+    { new: true }
+  );
+};
+
+const clearOTP = async (projectId) => {
+  return Project.findByIdAndUpdate(
+    projectId,
+    {
+      clientConfirmationOTP: null,
+      clientConfirmationOTPExpires: null
+    },
+    { new: true }
+  );
+};
+ 
+const isProjectConfirmed = async (token) => {
+  const project = await Project.findOne({ clientLinkToken: token });
+  if (!project) return false;
+  return project.clientConfirmed === true;
+};
+
+
 
 module.exports = {
   // CRUD
@@ -388,7 +358,6 @@ module.exports = {
   findByFreelancer,
   updateProjectById,
   deleteProjectById,
-  getProjectStats,
   findByIdAndOwner,
 
   // Deliverables
@@ -408,23 +377,15 @@ module.exports = {
   // Activity
   pushActivity,
 
-  // OTP
-  setOTP,
-  clearOTP,
-
-  // Confirmation
-  findForConfirmation,
-  updateClientLinkToken,
-
-  // Session
-  setSession,
-  findValidSession,
-  updateSessionActivity,
-
-  // Payment
-  updatePayment,
+  
 
   // Queries
   findByClientEmail,
   findOverdue,
+  saveConfirmationOTP,
+  verifyOTPAndConfirm,
+  resendConfirmationOTP,
+  clearOTP,
+  isProjectConfirmed
+
 };
