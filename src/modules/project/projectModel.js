@@ -18,7 +18,8 @@ const activitySchema = new Schema({
       'project_reopened',
       'project_completed',
       'client_confirmed_via_OTP',
-      'client_link_generated'
+      'client_link_generated',
+      'client_link_opened'
     
     ]
   },
@@ -290,7 +291,7 @@ sessionTrustLevel: {
   agreedSnapshot: {
     deliverables: [
     {
-      description: String,
+      item: String,
       deliverableType: String
     }
   ],

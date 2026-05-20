@@ -726,13 +726,11 @@ const submitDeliverable = async (req, res) => {
 const clientApproveDeliverable = async (req, res) => {
   try {
     const { token, index } = req.params;
-    const { clientName } = req.body;
     
+    // No clientName in body - we get it from the project data
     const project = await projectService.approveDeliverable(
       token,
-      parseInt(index),
-      clientName || 'Client',
-      clientName
+      parseInt(index)
     );
     
     return res.status(200).json({
@@ -839,6 +837,7 @@ module.exports = {
     confirmProject,
     resendConfirmationOTP,
     sendConfirmationOTP,
-    submitDeliverable
+    submitDeliverable,
+    clientApproveDeliverable
 
   };

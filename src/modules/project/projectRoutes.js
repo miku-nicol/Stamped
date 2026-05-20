@@ -1,6 +1,6 @@
 const express = require("express");
 const { authenticate } = require("../../middleware/auth");
-const { createProject, addDeliverable, getProjects, getProjectStats, getClientProject, generateClientLink, getProjectById, editDeliverable, getProjectEditInfo, deleteDeliverable, editProjectBasicInfo, deleteProject, sendConfirmationOTP, resendConfirmationOTP, confirmProject, submitDeliverable } = require("./projectController");
+const { createProject, addDeliverable, getProjects, getProjectStats, getClientProject, generateClientLink, getProjectById, editDeliverable, getProjectEditInfo, deleteDeliverable, editProjectBasicInfo, deleteProject, sendConfirmationOTP, resendConfirmationOTP, confirmProject, submitDeliverable, clientApproveDeliverable } = require("./projectController");
 
 
 const projectRouter = express.Router()
@@ -10,6 +10,7 @@ projectRouter.get("/client/:token", getClientProject)
 projectRouter.post("/client/:token/send-otp", sendConfirmationOTP)
 projectRouter.post("/client/:token/resend-otp", resendConfirmationOTP);
 projectRouter.post("/client/:token/confirm", confirmProject);
+projectRouter.post("/client/:token/:index/approve",clientApproveDeliverable)
  
 
 projectRouter.use(authenticate);

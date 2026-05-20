@@ -193,9 +193,68 @@ const notifyFreelancerConfirmation = async (freelancerEmail, freelancerName, pro
   await transporter.sendMail(mailOptions);
 };
 
+const sendRevisionRequestNotification = async (freelancerEmail, freelancerName, projectName, deliverableName, revisionReason, projectId, clientName) => {
+  const mailOptions = {
+    from: `"Stamped" <${process.env.EMAIL_USER}>`,
+    to: freelancerEmail,
+    subject: `Revision Requested: ${deliverableName} - ${projectName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #6B46C1; padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">Stamped</h1>
+        </div>
+        
+        <div style="padding: 20px; background-color: #f9f9f9;">
+          <h2>Hello ${freelancerName},</h2>
+          
+          <p><strong>${clientName}</strong> has requested revisions on <strong>"${deliverableName}"</strong> for project <strong>${projectName}</strong>.</p>
+          
+          <div style="background-color: white; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #6B46C1;">
+            <h3 style="margin-top: 0; color: #6B46C1;">Revision Notes:</h3>
+            <p style="margin-bottom: 0;">${revisionReason}</p>
+          </div>
+          
+          <p>Please review the feedback and submit an updated version of this deliverable.</p>
+          
+          <a href="${process.env.FRONTEND_URL}/projects/${projectId}" style="display: inline-block; padding: 12px 24px; background-color: #6B46C1; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            View Project & Make Revisions
+          </a>
+          
+          <p>You can resubmit the revised deliverable through the project page.</p>
+          
+          <hr style="margin: 20px 0;">
+          
+          <p style="color: #666; font-size: 12px;">
+            Stamped helps freelancers and clients track project agreements, deliverables, and approvals.
+          </p>
+        </div>
+      </div>
+    `,
+    text: `
+      Hello ${freelancerName},
+      
+      ${clientName} has requested revisions on "${deliverableName}" for project "${projectName}".
+      
+      Revision Notes:
+      ${revisionReason}
+      
+      Please review the feedback and submit an updated version of this deliverable.
+      
+      View the project at: ${process.env.FRONTEND_URL}/projects/${projectId}
+      
+      ---
+      Stamped helps freelancers and clients track project agreements, deliverables, and approvals.
+    `
+  };
+  
+  await transporter.sendMail(mailOptions);
+};
+
+
 module.exports = { sendPasswordResetEmail, 
     sendPasswordResetSuccessEmail,
     sendConfirmationOTP,
     sendConfirmationReceipt,
-    notifyFreelancerConfirmation
+    notifyFreelancerConfirmation,
+    sendRevisionRequestNotification
  };

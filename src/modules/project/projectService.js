@@ -33,7 +33,7 @@ const createProject = async (projectData, freelancerId, freelancerName) => {
     deliverableType: 'original',
     version: 1,
     previousVersions: [],
-    submittedAt: new Date()
+  
   }));
 
   // Calculate total project amount
@@ -93,22 +93,13 @@ const createProject = async (projectData, freelancerId, freelancerName) => {
 };
 
 const canEditProject = (project) => {
-  const editableStatuses = ['draft', 'pending'];
+  const editableStatuses = ['pending'];
   return editableStatuses.includes(project.status);
 };
 
 
 const getEditPermissions = (project) => {
   switch (project.status) {
-    case 'draft':
-      return {
-        canEditBasicInfo: true,
-        canEditDeliverables: true,
-        canAddDeliverables: true,
-        canDeleteDeliverables: true,
-        canReorderDeliverables: true,
-        message: 'Full edit mode'
-      };
     case 'pending':
       return {
         canEditBasicInfo: true,
@@ -116,7 +107,7 @@ const getEditPermissions = (project) => {
         canAddDeliverables: true,
         canDeleteDeliverables: true,
         canReorderDeliverables: true,
-        message: 'Full mode edit.'
+        message: 'Full edit mode'
       };
     case 'active':
     case 'completed':
@@ -234,8 +225,8 @@ const deleteDeliverable = async (projectId, index, freelancerId) => {
     throw new Error("You don't have permission to edit this project");
   }
   
-  // Check if editable (only draft and pending_confirmation can delete)
-  if (project.status !== 'draft' && project.status !== 'pending') {
+  
+  if (project.status !== 'pending') {
     throw new Error(`Cannot delete deliverables when project is '${project.status}'`);
   }
   
@@ -501,8 +492,7 @@ const getClientProjectByToken = async (token) => {
     amount: project.amount,
     dueDate: project.dueDate,
     deliverables: project.deliverables.map(d => ({
-      name: d.name,
-      description: d.description,
+      item: d.item,
       amount: d.amount,
       status: d.status
     })),
@@ -559,12 +549,11 @@ const getRelativeTime = (date) => {
 
 const formattedDeliverables = deliverables.map((d, index) => ({
   id: index,
-  description: d.description || '',
+  item: d.item || '',
   amount: d.amount,
   status: d.status,
   submittedAt: d.submittedAt,
   approvedAt: d.approvedAt,
-  fileUrl: d.fileUrl,
   version: d.version,
   hasPreviousVersions: (d.previousVersions?.length || 0) > 0
   }));
@@ -585,6 +574,7 @@ const formattedDeliverables = deliverables.map((d, index) => ({
     status: project.status,
     clientName: project.clientName,
     clientEmail: project.clientEmail,
+    clientPhone: project.clientPhone,
     clientConfirmed: project.clientConfirmedAt,
     clientConfirmedAt:project.clientConfirmedAt ,
     totalAmount: totalAmount,
@@ -904,16 +894,16 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
 };
 };
 
-const approveDeliverable = async (token, index, clientName, clientIdentifier) => {
+const approveDeliverable = async (token, index) => {
   console.log("Service: approveDeliverable started");
   
+  // Find project by its unique client link token
   const project = await projectRepository.findByClientLinkToken(token);
   
   if (!project) {
     throw new Error("Invalid project link");
   }
   
-  // Check if project is active
   if (project.status !== 'active') {
     throw new Error("Project must be active to approve deliverables");
   }
@@ -931,19 +921,23 @@ const approveDeliverable = async (token, index, clientName, clientIdentifier) =>
     throw new Error("Deliverable has not been submitted yet");
   }
   
+  // Get client name from the project data
+  // The project belongs to ONE specific client who has this unique link
+  const clientName = project.clientConfirmedBy || project.clientName || 'Client';
+  
   // Approve the deliverable
   deliverable.status = 'approved';
   deliverable.approvedAt = new Date();
-  deliverable.approvedBy = clientName || clientIdentifier;
+  deliverable.approvedBy = clientName;
   
   await project.save();
   
-  // Record activity - FR-3
+  // Record activity using client name from the project
   await projectRepository.pushActivity(project._id, {
     action: 'deliverable_approved',
-    description: `Client approved "${deliverable.item}"`,
+    description: `${clientName} approved "${deliverable.item}"`,
     performedBy: 'client',
-    performedByName: clientName || 'Client',
+    performedByName: clientName,
     metadata: {
       deliverableIndex: index,
       deliverableName: deliverable.item,
@@ -952,7 +946,7 @@ const approveDeliverable = async (token, index, clientName, clientIdentifier) =>
     }
   });
   
-  // FR-6: Check if all deliverables are approved - auto-complete project
+  // Check if all deliverables are approved - auto-complete project
   const allApproved = project.deliverables.every(d => d.status === 'approved');
   
   if (allApproved && project.status !== 'completed') {
@@ -960,7 +954,6 @@ const approveDeliverable = async (token, index, clientName, clientIdentifier) =>
     project.completedAt = new Date();
     await project.save();
     
-    // Record project completion activity - FR-6
     await projectRepository.pushActivity(project._id, {
       action: 'project_completed',
       description: 'Project marked as completed',
@@ -973,10 +966,8 @@ const approveDeliverable = async (token, index, clientName, clientIdentifier) =>
   return project;
 };
 
-/**
- * Client requests revision on a deliverable (FR-2)
- */
-const requestRevision = async (token, index, revisionReason, clientName) => {
+
+const requestRevision = async (token, index, revisionReason) => {
   console.log("Service: requestRevision started");
   
   const project = await projectRepository.findByClientLinkToken(token);
@@ -1002,20 +993,23 @@ const requestRevision = async (token, index, revisionReason, clientName) => {
     throw new Error("Please provide a reason for revision");
   }
   
-  // Request revision - status changes to 'revision_requested'
+  // Get client name from the project
+  const clientName = project.clientConfirmedBy || project.clientName || 'Client';
+  
+  // Update deliverable status
   deliverable.status = 'revision_requested';
   deliverable.revisionRequestedAt = new Date();
-  deliverable.revisionRequestedBy = clientName || 'Client';
-  deliverable.submissionNotes = revisionReason; // Store reason in submissionNotes
+  deliverable.revisionRequestedBy = clientName;
+  deliverable.submissionNotes = revisionReason;
   
   await project.save();
   
-  // Record revision request activity - FR-2
+  // Record activity
   await projectRepository.pushActivity(project._id, {
     action: 'revision_requested',
-    description: `Client requested revision on "${deliverable.item}"`,
+    description: `${clientName} requested revision on "${deliverable.item}"`,
     performedBy: 'client',
-    performedByName: clientName || 'Client',
+    performedByName: clientName,
     metadata: {
       deliverableIndex: index,
       deliverableName: deliverable.item,
@@ -1024,7 +1018,48 @@ const requestRevision = async (token, index, revisionReason, clientName) => {
     }
   });
   
-  return project;
+  // ✅ SEND EMAIL TO FREELANCER
+  try {
+    // Get freelancer email from the freelancerId
+    const freelancer = await userRepository.findById(project.freelancerId);
+    
+    if (freelancer && freelancer.email) {
+      await notificationService.sendRevisionRequestNotification(
+        freelancer.email,
+        project.freelancerName,
+        project.projectName,
+        deliverable.item,
+        revisionReason,
+        project._id,
+        clientName
+      );
+      console.log(`Revision request email sent to ${freelancer.email}`);
+    } else {
+      console.log("Freelancer email not found, skipping notification");
+    }
+  } catch (emailError) {
+    // Don't fail the request if email fails - just log it
+    console.error("Failed to send revision request email:", emailError.message);
+  }
+
+  return {
+    _id: project._id,
+    freelancerId: project.freelancerId,
+    freelancerName: project.freelancerName,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    clientEmail: project.clientEmail,
+    totalAmount: project.totalAmount,
+    dueDate: project.dueDate,
+    deliverables: project.deliverables.map(d => ({
+      item: d.item,
+      amount: d.amount,
+      status: d.status
+    })),
+    status: project.status,
+     
+  };
+  
 };
 
 /**
@@ -1104,9 +1139,7 @@ const submitRevisedDeliverable = async (projectId, index, submissionData, freela
 };
 
 
-/**
- * Get deliverable submission history (for version tracking)
- */
+
 const getDeliverableHistory = async (projectId, index, freelancerId) => {
   const project = await projectRepository.findById(projectId);
   
@@ -1156,5 +1189,6 @@ module.exports = {
      sendConfirmationOTP,
      confirmProject,
      resendConfirmationOTP,
-     submitDeliverableForApproval
+     submitDeliverableForApproval,
+     approveDeliverable
      };
