@@ -105,34 +105,46 @@ const updateProjectBasicInfo = async (projectId, updateData) => {
   );
 };
 
-const updateDeliverableFields = async (projectId, index, updateData) => {
+const updateDeliverableFields = async (projectId, deliverableId, updateData) => {
   const project = await Project.findById(projectId);
   if (!project) return null;
-  if (!project.deliverables[index]) return null;
+  const deliverable = project.deliverables.id(deliverableId);
+  if (!deliverable) return null;
   
   const allowedFields = ['item', 'amount'];
   
   allowedFields.forEach(field => {
     if (updateData[field] !== undefined) {
-      project.deliverables[index][field] = updateData[field];
+      project.deliverables[field] = updateData[field];
     }
   });
   
   // Recalculate total project amount
-  project.amount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  project.totalAmount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
   
   await project.save();
   return project;
 };
 
-const deleteDeliverable = async (projectId, index) => {
+const findDeliverableById = async (projectId, deliverableId) => {
   const project = await Project.findById(projectId);
   if (!project) return null;
-  if (!project.deliverables[index]) {
-    throw new Error('Deliverable not found');
-  };
   
-  project.deliverables.splice(index, 1);
+  const deliverable = project.deliverables.id(deliverableId);
+  if (!deliverable) return null;
+  
+  return { project, deliverable, deliverableIndex: project.deliverables.findIndex(d => d._id.toString() === deliverableId) };
+};
+
+
+const deleteDeliverable = async (projectId, deliverableId) => {
+  const project = await Project.findById(projectId);
+  if (!project) return null;
+   const deliverable = project.deliverables.id(deliverableId);
+  if (!deliverable) return null;
+  
+  
+     project.deliverables.pull(deliverableId);
   
   // Recalculate total project amount
   project.amount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
@@ -164,22 +176,25 @@ const updateDeliverableByIndex = async (projectId, index, updateData) => {
   return project;
 };
 
-const setDeliverableStatus = (projectId, index, status, approvedAt) => {
-  const update = {
-    [`deliverables.${index}.status`]: status,
-  };
+const setDeliverableStatus = async (projectId, deliverableId, status, approvedAt) => {
+  const project = await Project.findById(projectId);
+
+  if (!project) return null;
+
+  const deliverable = project.deliverables.id(deliverableId);
+
+  if (!deliverable) return null;
+
+  deliverable.status = status;
 
   if (approvedAt) {
-    update[`deliverables.${index}.approvedAt`] = approvedAt;
+    deliverable.approvedAt = approvedAt;
   }
 
-  return Project.findByIdAndUpdate(
-    projectId,
-    { $set: update },
-    { returnDocument: 'after' }
-  );
-};
+  await project.save();
 
+  return project;
+};
 const areAllDeliverablesApproved = async (projectId) => {
   const project = await Project.findById(projectId);
   if (!project) return false;
@@ -187,40 +202,60 @@ const areAllDeliverablesApproved = async (projectId) => {
   return project.deliverables.every(d => d.status === 'approved');
 };
 
-const approveDeliverable = async (projectId, index) => {
-  const project = await Project.findById(projectId);
-  if (!project) return null;
-  if (!project.deliverables[index]) return null;
+const approveDeliverable = async (projectId, deliverableId) => {
+ const result = await findDeliverableById(projectId, deliverableId);
+  if (!result) return null;
   
-  project.deliverables[index].status = 'approved';
-  project.deliverables[index].approvedAt = new Date();
+  const { project, deliverable } = result;
   
-  await project.save();
-  return project;
-};
-
-const submitDeliverable = async (projectId, index, fileUrl) => {
-  const project = await Project.findById(projectId);
-  if (!project) return null;
-  if (!project.deliverables[index]) return null;
-  
-  project.deliverables[index].fileUrl = fileUrl;
-  project.deliverables[index].submittedAt = new Date();
-  project.deliverables[index].status = 'pending_approval';
+  deliverable.status = 'approved';
+  deliverable.approvedAt = new Date();
   
   await project.save();
   return project;
 };
 
-const requestRevision = async (projectId, index, revisionNotes) => {
-  const project = await Project.findById(projectId);
-  if (!project) return null;
-  if (!project.deliverables[index]) return null;
+const submitDeliverable = async (projectId, deliverableId, supportingLinks, submissionNotes) => {
+  const result = await findDeliverableById(projectId, deliverableId);
+  if (!result) return null;
   
-  // Change status to 'pending' (waiting for freelancer to revise)
-  project.deliverables[index].status = 'pending';
-  project.deliverables[index].revisionNotes = revisionNotes;
-  project.deliverables[index].revisionRequestedAt = new Date();
+  const { project, deliverable } = result;
+  
+  // Save previous version
+  if (deliverable.status !== 'pending' || deliverable.submittedAt) {
+    const previousVersion = {
+      item: deliverable.item,
+      amount: deliverable.amount,
+      supportingLinks: deliverable.supportingLinks || [],
+      submissionNotes: deliverable.submissionNotes,
+      submittedAt: deliverable.submittedAt,
+      approvedAt: deliverable.approvedAt,
+      version: deliverable.version
+    };
+    deliverable.previousVersions = deliverable.previousVersions || [];
+    deliverable.previousVersions.push(previousVersion);
+    deliverable.version += 1;
+  }
+  
+  deliverable.supportingLinks = supportingLinks;
+  deliverable.submissionNotes = submissionNotes || null;
+  deliverable.submittedAt = new Date();
+  deliverable.status = 'pending';
+  deliverable.revisionRequestedAt = null;
+  deliverable.revisionRequestedBy = null;
+  
+  await project.save();
+  return project;
+};
+
+const requestRevision = async (projectId, deliverableId) => {
+  const result = await findDeliverableById(projectId, deliverableId);
+  if (!result) return null;
+  
+  const { project, deliverable } = result;
+  
+  deliverable.status = 'revision_requested';
+  deliverable.revisionRequestedAt = new Date();
   
   await project.save();
   return project;
@@ -372,6 +407,7 @@ module.exports = {
   deleteDeliverable,
   updateDeliverableFields,
   updateProjectBasicInfo,
+  findDeliverableById,
   
 
   // Activity

@@ -330,29 +330,41 @@ const sendRevisionRequestNotification = async (
     subject: `Revision Requested: ${deliverableName} - ${projectName}`,
 
     htmlContent: `
-      <div style="font-family: Arial, sans-serif;">
-
-        <h2>Hello ${freelancerName},</h2>
-
-        <p>
-          ${clientName} requested revisions on:
-          <strong>${deliverableName}</strong>
-        </p>
-
-        <div style="
-          background:#f4f4f4;
-          padding:15px;
-          border-radius:8px;
-          margin:20px 0;
-        ">
-          ${revisionReason}
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #6B46C1; padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">Stamped</h1>
         </div>
-
-        <a href="${process.env.FRONTEND_URL}/projects/${projectId}">
-          View Project
-        </a>
-
+        
+        <div style="padding: 20px; background-color: #f9f9f9;">
+          <h2>Hello ${freelancerName},</h2>
+          
+          <p><strong>${clientName}</strong> has requested revisions on <strong>"${deliverableName}"</strong> for project <strong>${projectName}</strong>.</p>
+          
+          <p>Please review the deliverable and submit an updated version.</p>
+          
+          <a href="${process.env.FRONTEND_URL}/projects/${projectId}" style="display: inline-block; padding: 12px 24px; background-color: #6B46C1; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
+            View Project & Make Revisions
+          </a>
+          
+          <hr style="margin: 20px 0;">
+          
+          <p style="color: #666; font-size: 12px;">
+            Stamped helps freelancers and clients track project agreements, deliverables, and approvals.
+          </p>
+        </div>
       </div>
+    `,
+    text: `
+      Hello ${freelancerName},
+      
+      ${clientName} has requested revisions on "${deliverableName}" for project "${projectName}".
+      
+      Please review the deliverable and submit an updated version.
+      
+      View the project at: ${process.env.FRONTEND_URL}/projects/${projectId}
+      
+      ---
+      Stamped helps freelancers and clients track project agreements, deliverables, and approvals.
     `
 
   });

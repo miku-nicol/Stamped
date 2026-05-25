@@ -1,5 +1,6 @@
 const { timeStamp } = require("console");
 const projectRepository = require("./projectRepository");
+const userRepository = require("../users/userRepository")
 const crypto = require("crypto")
 const notificationService = require('../../services/emailService')
 
@@ -84,7 +85,6 @@ const createProject = async (projectData, freelancerId, freelancerName) => {
       amount: d.amount,
     })),
     status: project.status,
-    paymentStatus: project.paymentStatus,
     clientConfirmed: project.clientConfirmed,
     areTermsLocked: project.areTermsLocked,
     createdAt: project.createdAt
@@ -166,8 +166,10 @@ return {
   };
 };
 
-const editDeliverable = async (projectId, index, updateData, freelancerId) => {
+const editDeliverable = async (projectId, deliverableId, updateData, freelancerId) => {
   console.log("Service: editDeliverable started");
+  console.log("Looking for deliverable:", deliverableId);
+  console.log("In project:", projectId);
   
   const project = await projectRepository.findById(projectId);
   
@@ -185,33 +187,52 @@ const editDeliverable = async (projectId, index, updateData, freelancerId) => {
     throw new Error(`Cannot edit deliverables when project is '${project.status}'`);
   }
   
-  const deliverable = project.deliverables[index];
+  // ✅ Find the deliverable by its ID
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
+    console.log(`Deliverable ${deliverableId} not found in project ${projectId}`);
+    console.log("Available deliverables:", project.deliverables.map(d => ({ id: d._id, item: d.item })));
     throw new Error("Deliverable not found");
   }
   
-
-  const updatedProject = await projectRepository.updateDeliverableFields(projectId, index, updateData);
+  console.log(`Found deliverable: ${deliverable.item} (current amount: ${deliverable.amount})`);
   
+  // Update fields
+  if (updateData.item !== undefined) {
+    deliverable.item = updateData.item;
+  }
+  if (updateData.amount !== undefined) {
+    deliverable.amount = updateData.amount;
+  }
   
-return {
-  id: updatedProject._id,
-    freelancerId: updatedProject.freelancerId,
-    freelancerName:updatedProject.freelancerName,
-    projectName: updatedProject.projectName,
-    clientName: updatedProject.clientName,
-    clientEmail: updatedProject.clientEmail,
-    totalAmount:updatedProject.totalAmount,
-    dueDate: updatedProject.dueDate,
-     deliverables: updatedProject.deliverables.map(d => ({
+  // Recalculate total project amount
+  project.totalAmount = project.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
+  await project.save();
+  
+  console.log(`Updated deliverable to: ${deliverable.item} (amount: ${deliverable.amount})`);
+  console.log(`New total amount: ${project.totalAmount}`);
+  
+  return {
+    id: project._id,
+    freelancerId: project.freelancerId,
+    freelancerName: project.freelancerName,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    clientEmail: project.clientEmail,
+    totalAmount: project.totalAmount,
+    dueDate: project.dueDate,
+    deliverables: project.deliverables.map(d => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
+      status: d.status
     })),
+  };
 };
-}
 
 
-const deleteDeliverable = async (projectId, index, freelancerId) => {
+const deleteDeliverable = async (projectId, deliverableId, freelancerId) => {
   console.log("Service: deleteDeliverable started");
   
   const project = await projectRepository.findById(projectId);
@@ -230,13 +251,13 @@ const deleteDeliverable = async (projectId, index, freelancerId) => {
     throw new Error(`Cannot delete deliverables when project is '${project.status}'`);
   }
   
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
   
-  const deliverableName = project.deliverables[index].item;
-  const updatedProject = await projectRepository.deleteDeliverable(projectId, index);
+  
+  const updatedProject = await projectRepository.deleteDeliverable(projectId, deliverableId);
 
   if(!updatedProject){
     throw new Error('Failed to delete deliverable')
@@ -253,8 +274,8 @@ const deleteDeliverable = async (projectId, index, freelancerId) => {
     clientEmail: updatedProject.clientEmail,
     totalAmount: recalculatedTotal,
     dueDate: updatedProject.dueDate,
-    deliverables: updatedProject.deliverables.map((d, idx) => ({
-      id: idx,
+    deliverables: updatedProject.deliverables.map((d) => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
       status: d.status
@@ -300,7 +321,7 @@ const getProjectEditInfo = async (projectId, freelancerId) => {
 };
 
 
-const addDeliverable = async (projectId, deliverableData, freelancerId, isExtra = false) => {
+const addDeliverable = async (projectId, deliverableData, freelancerId) => {
   console.log("Service: addDeliverable started");
   
   const project = await projectRepository.findById(projectId);
@@ -324,35 +345,86 @@ const addDeliverable = async (projectId, deliverableData, freelancerId, isExtra 
     throw new Error("Deliverable amount cannot be negative");
   }
   
+  
+  const isExtra = project.status === 'active';
+  const deliverableType = isExtra ? 'extra' : 'original';
+
+  //  If project is completed and adding extra work, reactivate it
+  let projectReactivated = false;
+  if (project.status === 'completed') {
+    project.status = 'active';
+    project.completedAt = null;
+    projectReactivated = true;
+    console.log("Project reactivated from completed to active");
+  }
+  
+  console.log(`Adding ${deliverableType} deliverable to project with status: ${project.status}`);
+  
   const newDeliverable = {
     item: deliverableData.item,
     amount: deliverableData.amount,
     status: 'pending',
-    deliverableType: isExtra ? 'extra' : 'original',
+    deliverableType: deliverableType,
     version: 1,
     previousVersions: [],
     submittedAt: new Date()
   };
   
   const updatedProject = await projectRepository.pushDeliverable(projectId, newDeliverable);
-
+  
   const recalculatedTotal = updatedProject.deliverables.reduce((sum, d) => sum + (d.amount || 0), 0);
+  
+  // Record activity based on deliverable type
+  const activityAction = isExtra ? 'deliverable_added' : 'deliverable_added';
+  const activityDescription = isExtra 
+    ? `Extra deliverable added: "${deliverableData.item}" (${project.currency} ${deliverableData.amount.toLocaleString()})`
+    : `Deliverable added: "${deliverableData.item}" (${project.currency} ${deliverableData.amount.toLocaleString()})`;
+  
+  await projectRepository.pushActivity(project._id, {
+    action: activityAction,
+    description: activityDescription,
+    performedBy: 'freelancer',
+    performedByName: project.freelancerName,
+    metadata: {
+      deliverableId: newDeliverable._id,
+      deliverableName: deliverableData.item,
+      deliverableType: deliverableType,
+      amount: deliverableData.amount,
+      isExtra: isExtra,
+      addedAt: new Date()
+    }
+  });
 
+  if (projectReactivated) {
+    await projectRepository.pushActivity(project._id, {
+      action: 'project_reopened',
+      description: `Project reopened for additional work: "${deliverableData.item}"`,
+      performedBy: 'freelancer',
+      performedByName: project.freelancerName,
+      metadata: {
+        reactivatedAt: new Date(),
+        newDeliverable: deliverableData.item
+      }
+    });
+  }
+  
   return {
     id: updatedProject._id,
     freelancerId: updatedProject.freelancerId,
-    freelancerName:updatedProject.freelancerName,
+    freelancerName: updatedProject.freelancerName,
     projectName: updatedProject.projectName,
     clientName: updatedProject.clientName,
     clientEmail: updatedProject.clientEmail,
-    totalAmount:recalculatedTotal,
+    totalAmount: recalculatedTotal,
     dueDate: updatedProject.dueDate,
-     deliverables: updatedProject.deliverables.map(d => ({
+    deliverables: updatedProject.deliverables.map(d => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
-      status: d.status
+      status: d.status,
+      deliverableType: d.deliverableType
     })),
-  }
+  };
 };
 
 const getFreelancerProjects = async (freelancerId, options = {}) =>{
@@ -520,7 +592,7 @@ const getProjectById = async (projectId, freelancerId) => {
   const deliverables = project.deliverables || [];
   const totalDeliverables = deliverables.length;
   const approvedDeliverables = deliverables.filter(d => d.status === 'approved').length;
-  const pendingDeliverables = deliverables.filter(d => d.status === 'pending_approval').length;
+  const pendingDeliverables = deliverables.filter(d => d.status === 'pending').length;
   const requestRevisionDeliverables = deliverables.filter(d => d.status === 'request_revision').length;
 
 
@@ -547,8 +619,8 @@ const getRelativeTime = (date) => {
   return formatDate(date);
 };
 
-const formattedDeliverables = deliverables.map((d, index) => ({
-  id: index,
+const formattedDeliverables = deliverables.map((d) => ({
+  id: d._id,
   item: d.item || '',
   amount: d.amount,
   status: d.status,
@@ -572,15 +644,14 @@ const formattedDeliverables = deliverables.map((d, index) => ({
     _id: project._id,
     projectName: project.projectName,
     status: project.status,
+    freelancerName: project.freelancerName,
     clientName: project.clientName,
     clientEmail: project.clientEmail,
-    clientPhone: project.clientPhone,
     clientConfirmed: project.clientConfirmedAt,
     clientConfirmedAt:project.clientConfirmedAt ,
     totalAmount: totalAmount,
     paymentStatus: project.paymentStatus,
     areTermsLocked: project.areTermsLocked,
-    agreedSnapshot: project.agreedSnapshot,
     dueDate: project.dueDate,
     formattedDueDate: formatDate(project.dueDat),
     createdAt: project.createdAt,
@@ -604,7 +675,7 @@ const formattedDeliverables = deliverables.map((d, index) => ({
 
 // projectService.js - With proper notification arguments
 
-const confirmProject = async (token, otp, clientName, clientIdentifier) => {   
+const confirmProject = async (token, otp) => {   
   console.log("Service: confirmProject started");
   
   const project = await projectRepository.findByClientLinkToken(token);
@@ -617,7 +688,7 @@ const confirmProject = async (token, otp, clientName, clientIdentifier) => {
     throw new Error("Project already confirmed");
   }
 
-  console.log("Incoming OTP:", otp);
+console.log("Incoming OTP:", otp);
 console.log("Stored OTP:", project.clientConfirmationOTP);
 console.log("Type incoming:", typeof otp);
 console.log("Type stored:", typeof project.clientConfirmationOTP);
@@ -629,10 +700,15 @@ console.log("Type stored:", typeof project.clientConfirmationOTP);
   if (new Date() > project.clientConfirmationOTPExpires) {
     throw new Error("OTP has expired. Please request a new code.");
   }
+
+  const clientName = project.clientName;
+   const clientIdentifier = project.clientEmail;
+   
   
   // Create snapshot
   const agreedSnapshot = {
     deliverables: project.deliverables.map(d => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
       deliverableType: d.deliverableType
@@ -650,7 +726,7 @@ console.log("Type stored:", typeof project.clientConfirmationOTP);
   project.areTermsLocked = true;
   project.clientConfirmed = true;
   project.clientConfirmedAt = new Date();
-  project.clientConfirmedBy = clientName || clientIdentifier;
+  project.clientConfirmedBy = clientName;
   project.status = 'active';
   project.clientConfirmationOTP = null;
   project.clientConfirmationOTPExpires = null;
@@ -687,8 +763,20 @@ console.log("Type stored:", typeof project.clientConfirmationOTP);
     );
   }
   
-  return { success: true, project };
+   return { 
+    success: true, 
+    project: {
+      _id: project._id,
+      projectName: project.projectName,
+      clientName: project.clientName,
+      freelancerName: project.freelancerName,
+      status: project.status,
+      clientConfirmedAt: project.clientConfirmedAt,
+      totalAmount: project.totalAmount,
+      deliverables: project.deliverables
+    }
 };
+}
 
 const sendConfirmationOTP = async (token) => {
   console.log("Service: sendConfirmationOTP started for token:", token);
@@ -763,14 +851,12 @@ const resendConfirmationOTP = async (token) => {
   };
 };
 
-const submitDeliverableForApproval = async (projectId, index, submissionData, freelancerId, freelancerName) => {
+const submitDeliverableForApproval = async (projectId, deliverableId, submissionData, freelancerId, freelancerName) => {
   console.log("Service: submitDeliverableForApproval started");
   console.log("Project ID:", projectId);
-  console.log("Deliverable index:", index);
+  console.log("DeliverableId:", deliverableId);
   console.log("Submission data:", submissionData);
  
- 
-  
   // 1. Find the project
   const project = await projectRepository.findById(projectId);
   
@@ -792,7 +878,7 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
   }
   
   // 4. Check if deliverable exists
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
@@ -844,7 +930,7 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
     description: `Freelancer submitted "${deliverable.item}"`,
     performedByName: freelancerName,
     metadata: {
-      deliverableIndex: index,
+      deliverableId: deliverableId,
       deliverableName: deliverable.item,
       version: deliverable.version,
       supportingLinksCount: submissionData.supportingLinks.length,
@@ -855,18 +941,20 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
   
   console.log(`Deliverable "${deliverable.item}" submitted successfully. Status: awaiting approval`);
   
+   const updatedProject = await projectRepository.findById(projectId);
+   
   return {
-  _id: project._id,
-  freelancerId: project.freelancerId,
-  freelancerName: project.freelancerName,
-  projectName: project.projectName,
-  clientName: project.clientName,
-  clientEmail: project.clientEmail,
-  status: project.status,
-  totalAmount: project.totalAmount,
-  deliverableCount: project.deliverables.length,
-  deliverables: project.deliverables.map(d => ({
-    id: d._id,
+  _id: updatedProject._id,
+  freelancerId: updatedProject.freelancerId,
+  freelancerName: updatedProject.freelancerName,
+  projectName: updatedProject.projectName,
+  clientName: updatedProject.clientName,
+  clientEmail: updatedProject.clientEmail,
+  status: updatedProject.status,
+  totalAmount: updatedProject.totalAmount,
+  deliverableCount: updatedProject.deliverables.length,
+  deliverables: updatedProject.deliverables.map(d => ({
+    deliverableId: d._id,
     item: d.item,
     amount: d.amount,
     status: d.status,
@@ -878,7 +966,7 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
     version: d.version,
     previousVersions: d.previousVersions
   })),
-  activities: project.activities.map(a => ({
+  activities: updatedProject.activities.map(a => ({
     id: a._id,
     action: a.action,
     performedBy: a.performedBy,
@@ -887,14 +975,13 @@ const submitDeliverableForApproval = async (projectId, index, submissionData, fr
     metadata: a.metadata,
     timestamp: a.timestamp
   })),
-  clientLinkToken: project.clientLinkToken,
-  createdAt: project.createdAt,
-  updatedAt: project.updatedAt,
-  dueDate: project.dueDate
+  createdAt: updatedProject.createdAt,
+  updatedAt: updatedProject.updatedAt,
+  dueDate: updatedProject.dueDate
 };
 };
 
-const approveDeliverable = async (token, index) => {
+const approveDeliverable = async (token, deliverableId) => {
   console.log("Service: approveDeliverable started");
   
   // Find project by its unique client link token
@@ -908,7 +995,7 @@ const approveDeliverable = async (token, index) => {
     throw new Error("Project must be active to approve deliverables");
   }
   
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
@@ -939,7 +1026,7 @@ const approveDeliverable = async (token, index) => {
     performedBy: 'client',
     performedByName: clientName,
     metadata: {
-      deliverableIndex: index,
+      deliverableId: deliverableId,
       deliverableName: deliverable.item,
       version: deliverable.version,
       approvedAt: new Date()
@@ -963,11 +1050,22 @@ const approveDeliverable = async (token, index) => {
     });
   }
   
-  return project;
+  return { 
+    success: true, 
+    project: {
+      _id: project._id,
+      projectName: project.projectName,
+      clientName: project.clientName,
+      freelancerName: project.freelancerName,
+      status: project.status,
+      clientConfirmedAt: project.clientConfirmedAt,
+      totalAmount: project.totalAmount,
+      deliverables: project.deliverables
+    }
+  };
 };
 
-
-const requestRevision = async (token, index, revisionReason) => {
+const requestRevision = async (token, deliverableId) => {
   console.log("Service: requestRevision started");
   
   const project = await projectRepository.findByClientLinkToken(token);
@@ -980,7 +1078,7 @@ const requestRevision = async (token, index, revisionReason) => {
     throw new Error("Project must be active to request revisions");
   }
   
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
@@ -989,61 +1087,46 @@ const requestRevision = async (token, index, revisionReason) => {
     throw new Error("Cannot request revision on an already approved deliverable");
   }
   
-  if (!revisionReason || revisionReason.trim() === '') {
-    throw new Error("Please provide a reason for revision");
-  }
-  
-  // Get client name from the project
   const clientName = project.clientConfirmedBy || project.clientName || 'Client';
   
-  // Update deliverable status
+  // Update deliverable
   deliverable.status = 'revision_requested';
   deliverable.revisionRequestedAt = new Date();
   deliverable.revisionRequestedBy = clientName;
-  deliverable.submissionNotes = revisionReason;
   
   await project.save();
   
-  // Record activity
+  // Add activity
   await projectRepository.pushActivity(project._id, {
     action: 'revision_requested',
     description: `${clientName} requested revision on "${deliverable.item}"`,
-    performedBy: 'client',
     performedByName: clientName,
     metadata: {
-      deliverableIndex: index,
+      deliverableId: deliverableId,
       deliverableName: deliverable.item,
-      revisionReason: revisionReason.substring(0, 200),
       requestedAt: new Date()
     }
   });
   
-  // ✅ SEND EMAIL TO FREELANCER
+  // Send email
   try {
-    // Get freelancer email from the freelancerId
     const freelancer = await userRepository.findById(project.freelancerId);
-    
     if (freelancer && freelancer.email) {
       await notificationService.sendRevisionRequestNotification(
         freelancer.email,
         project.freelancerName,
         project.projectName,
         deliverable.item,
-        revisionReason,
         project._id,
         clientName
       );
-      console.log(`Revision request email sent to ${freelancer.email}`);
-    } else {
-      console.log("Freelancer email not found, skipping notification");
     }
   } catch (emailError) {
-    // Don't fail the request if email fails - just log it
-    console.error("Failed to send revision request email:", emailError.message);
+    console.error("Failed to send email:", emailError.message);
   }
-
+  
   return {
-    _id: project._id,
+    id: project._id,
     freelancerId: project.freelancerId,
     freelancerName: project.freelancerName,
     projectName: project.projectName,
@@ -1052,20 +1135,15 @@ const requestRevision = async (token, index, revisionReason) => {
     totalAmount: project.totalAmount,
     dueDate: project.dueDate,
     deliverables: project.deliverables.map(d => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
       status: d.status
-    })),
-    status: project.status,
-     
+    }))
   };
-  
 };
 
-/**
- * Freelancer submits revised deliverable (FR-2)
- */
-const submitRevisedDeliverable = async (projectId, index, submissionData, freelancerId) => {
+const submitRevisedDeliverable = async (projectId, deliverableId, submissionData, freelancerId) => {
   console.log("Service: submitRevisedDeliverable started");
   
   const project = await projectRepository.findById(projectId);
@@ -1082,7 +1160,7 @@ const submitRevisedDeliverable = async (projectId, index, submissionData, freela
     throw new Error("Project must be active to submit deliverables");
   }
   
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
@@ -1127,7 +1205,7 @@ const submitRevisedDeliverable = async (projectId, index, submissionData, freela
     performedBy: 'freelancer',
     performedByName: project.freelancerName,
     metadata: {
-      deliverableIndex: index,
+      deliverableId: deliverableId,
       deliverableName: deliverable.item,
       version: deliverable.version,
       supportingLinksCount: submissionData.supportingLinks.length,
@@ -1138,9 +1216,7 @@ const submitRevisedDeliverable = async (projectId, index, submissionData, freela
   return project;
 };
 
-
-
-const getDeliverableHistory = async (projectId, index, freelancerId) => {
+const getDeliverableHistory = async (projectId, deliverableId, freelancerId) => {
   const project = await projectRepository.findById(projectId);
   
   if (!project) {
@@ -1151,7 +1227,7 @@ const getDeliverableHistory = async (projectId, index, freelancerId) => {
     throw new Error("Unauthorized");
   }
   
-  const deliverable = project.deliverables[index];
+  const deliverable = project.deliverables.id(deliverableId);
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
@@ -1190,5 +1266,6 @@ module.exports = {
      confirmProject,
      resendConfirmationOTP,
      submitDeliverableForApproval,
-     approveDeliverable
+     approveDeliverable,
+     requestRevision
      };

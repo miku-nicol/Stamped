@@ -170,7 +170,7 @@ const editProjectBasicInfo = async (req, res) => {
 
 const editDeliverable = async (req, res) => {
   try {
-    const { projectId, index } = req.params;
+    const { projectId, deliverableId } = req.params;
     const updateData = req.body;
     
     // Validate update data
@@ -194,7 +194,7 @@ const editDeliverable = async (req, res) => {
     
     const project = await projectService.editDeliverable(
       projectId,
-      parseInt(index),
+      deliverableId,
       updateData,
       req.user.userId
     );
@@ -230,11 +230,11 @@ const editDeliverable = async (req, res) => {
 
 const deleteDeliverable = async (req, res) => {
   try {
-    const { projectId, index } = req.params;
+    const { projectId, deliverableId } = req.params;
     
     const project = await projectService.deleteDeliverable(
       projectId,
-      parseInt(index),
+      deliverableId,
       req.user.userId
     );
     
@@ -270,7 +270,7 @@ const deleteDeliverable = async (req, res) => {
 const addDeliverable = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { item, amount, isExtra = false } = req.body;
+    const { item, amount } = req.body; 
 
     if (!item) {
       return res.status(400).json({
@@ -295,11 +295,9 @@ const addDeliverable = async (req, res) => {
 
     const project = await projectService.addDeliverable(
       projectId,
-      { item: item, 
-        amount: parseFloat(amount) 
-      },
-      req.user.userId,
-      isExtra
+      { item: item, amount: parseFloat(amount) },
+      req.user.userId
+      
     );
 
     return res.status(200).json({
@@ -606,7 +604,7 @@ const resendConfirmationOTP = async (req, res) => {
 const confirmProject = async (req, res) => {
   try {
     const { token } = req.params;
-    const { otp } = req.body;
+    const { otp } = req.body;  
     
     if (!otp) {
       return res.status(400).json({
@@ -615,16 +613,16 @@ const confirmProject = async (req, res) => {
       });
     }
     
-    
     const result = await projectService.confirmProject(
       token,
       otp
+      
     );
     
     return res.status(200).json({
       success: true,
       data: result.project,
-      message: result.message
+      message: "Project successfully confirmed"
     });
   } catch (error) {
     console.error("Confirm project error:", error.message);
@@ -667,7 +665,7 @@ const confirmProject = async (req, res) => {
 
 const submitDeliverable = async (req, res) => {
   try {
-    const { projectId, index } = req.params;
+    const { projectId, deliverableId } = req.params;
     const { supportingLinks, submissionNotes } = req.body;
     
     if (!supportingLinks || supportingLinks.length === 0) {
@@ -690,7 +688,7 @@ const submitDeliverable = async (req, res) => {
     
     const project = await projectService.submitDeliverableForApproval(
       projectId,
-      parseInt(index),
+      deliverableId,
       { supportingLinks, submissionNotes: submissionNotes || null },
       req.user.userId,
       `${req.user.firstName} ${req.user.lastName}`
@@ -725,17 +723,16 @@ const submitDeliverable = async (req, res) => {
  */
 const clientApproveDeliverable = async (req, res) => {
   try {
-    const { token, index } = req.params;
+    const { token, deliverableId } = req.params;
     
     // No clientName in body - we get it from the project data
     const project = await projectService.approveDeliverable(
       token,
-      parseInt(index)
+      deliverableId 
     );
     
     return res.status(200).json({
       success: true,
-      data: { project },
       message: "Deliverable approved successfully"
     });
   } catch (error) {
@@ -756,32 +753,45 @@ const clientApproveDeliverable = async (req, res) => {
 /**
  * Client requests revision
  */
+// projectController.js
+
+/**
+ * Client requests revision (simplified - just click button)
+ */
 const clientRequestRevision = async (req, res) => {
   try {
-    const { token, index } = req.params;
-    const { revisionReason, clientName } = req.body;
+    const { token, deliverableId } = req.params;
     
-    if (!revisionReason || revisionReason.trim() === '') {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a reason for revision"
-      });
-    }
-    
+    // No body needed - just the token and deliverableId
     const project = await projectService.requestRevision(
       token,
-      parseInt(index),
-      revisionReason,
-      clientName || 'Client'
+      deliverableId
     );
     
     return res.status(200).json({
       success: true,
       data: { project },
-      message: "Revision requested successfully"
+      message: "Revision requested. Freelancer has been notified."
     });
   } catch (error) {
     console.error("Client request revision error:", error.message);
+    
+    if (error.message === "Invalid project link") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "Deliverable not found") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "Cannot request revision on an already approved deliverable") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    if (error.message === "Project must be active to request revisions") {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
     return res.status(500).json({ success: false, message: "Failed to request revision" });
   }
 };
@@ -791,7 +801,7 @@ const clientRequestRevision = async (req, res) => {
  */
 const submitRevisedDeliverable = async (req, res) => {
   try {
-    const { projectId, index } = req.params;
+    const { projectId, deliverableId } = req.params;
     const { supportingLinks, submissionNotes } = req.body;
     
     if (!supportingLinks || supportingLinks.length === 0) {
@@ -803,7 +813,7 @@ const submitRevisedDeliverable = async (req, res) => {
     
     const project = await projectService.submitRevisedDeliverable(
       projectId,
-      parseInt(index),
+      deliverableId,
       { supportingLinks, submissionNotes: submissionNotes || null },
       req.user.userId
     );
@@ -838,6 +848,10 @@ module.exports = {
     resendConfirmationOTP,
     sendConfirmationOTP,
     submitDeliverable,
-    clientApproveDeliverable
+    clientApproveDeliverable,
+    clientRequestRevision
+
+
+
 
   };

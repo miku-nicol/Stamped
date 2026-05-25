@@ -255,25 +255,6 @@ components:
           example: Here is the completed homepage design with responsive layout
           description: Optional notes about the submission
 
-    RequestRevisionRequest:
-      type: object
-      required:
-        - revisionReason
-      properties:
-        revisionReason:
-          type: string
-          example: Please update the colors to match our brand guidelines
-        clientName:
-          type: string
-          example: John Doe
-
-    ApproveDeliverableRequest:
-      type: object
-      properties:
-        clientName:
-          type: string
-          example: John Doe
-
     ConfirmProjectRequest:
       type: object
       required:
@@ -283,9 +264,6 @@ components:
           type: string
           example: "123456"
           description: 6-digit OTP sent to client email
-        clientName:
-          type: string
-          example: John Doe
 
     ProjectResponse:
       type: object
@@ -313,8 +291,8 @@ components:
           items:
             type: object
             properties:
-              id:
-                type: integer
+              deliverableId:
+                type: string
               item:
                 type: string
               amount:
@@ -461,8 +439,8 @@ components:
               items:
                 type: object
                 properties:
-                  id:
-                    type: integer
+                  deliverableId:
+                    type: string
                   item:
                     type: string
                   amount:
@@ -767,9 +745,9 @@ paths:
         200:
           description: Deliverable added successfully
 
-  /projects/{projectId}/deliverable/{index}:
+  /projects/{projectId}/deliverable/{deliverableId}:
     put:
-      summary: Edit a deliverable
+      summary: Edit a deliverable by ID
       tags:
         - Deliverables
       security:
@@ -781,10 +759,10 @@ paths:
           schema:
             type: string
         - in: path
-          name: index
+          name: deliverableId
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -796,7 +774,7 @@ paths:
           description: Deliverable updated successfully
 
     delete:
-      summary: Delete a deliverable
+      summary: Delete a deliverable by ID
       tags:
         - Deliverables
       security:
@@ -808,10 +786,10 @@ paths:
           schema:
             type: string
         - in: path
-          name: index
+          name: deliverableId
           required: true
           schema:
-            type: integer
+            type: string
       responses:
         200:
           description: Deliverable deleted successfully
@@ -826,7 +804,7 @@ paths:
         404:
           description: Project or deliverable not found
 
-  /projects/{projectId}/deliverable/{index}/submit:
+  /projects/{projectId}/deliverable/{deliverableId}/submit:
     post:
       summary: Submit deliverable for client approval (Freelancer)
       tags:
@@ -840,10 +818,10 @@ paths:
           schema:
             type: string
         - in: path
-          name: index
+          name: deliverableId
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: true
         content:
@@ -1040,9 +1018,10 @@ paths:
         404:
           description: Invalid project link
 
-  /projects/client/{token}/deliverable/{index}/approve:
+  # ==================== CLIENT ACTION ENDPOINTS ====================
+  /projects/client/{token}/deliverable/{deliverableId}/approve:
     post:
-      summary: Client approves a deliverable
+      summary: Client approves a deliverable by ID
       tags:
         - Client Actions
       parameters:
@@ -1052,16 +1031,17 @@ paths:
           schema:
             type: string
         - in: path
-          name: index
+          name: deliverableId
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ApproveDeliverableRequest'
+              type: object
+              properties: {}
       responses:
         200:
           description: Deliverable approved successfully
@@ -1084,7 +1064,7 @@ paths:
         404:
           description: Invalid project link or deliverable not found
 
-  /projects/client/{token}/deliverable/{index}/request-revision:
+  /projects/client/{token}/deliverable/{deliverableId}/request-revision:
     post:
       summary: Client requests revision on a deliverable
       tags:
@@ -1096,19 +1076,20 @@ paths:
           schema:
             type: string
         - in: path
-          name: index
+          name: deliverableId
           required: true
           schema:
-            type: integer
+            type: string
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RequestRevisionRequest'
+              type: object
+              properties: {}
       responses:
         200:
-          description: Revision requested successfully
+          description: Revision requested successfully. Freelancer has been notified.
           content:
             application/json:
               schema:
@@ -1124,6 +1105,6 @@ paths:
                   message:
                     type: string
         400:
-          description: Revision reason required or cannot request revision
+          description: Cannot request revision (project not active or deliverable already approved)
         404:
           description: Invalid project link or deliverable not found
