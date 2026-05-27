@@ -489,7 +489,7 @@ const generateClientLink = async (projectId, freelancerId) => {
   let clientLinkToken = project.clientLinkToken;
   if (!clientLinkToken) {
     clientLinkToken = crypto.randomBytes(32).toString('hex');
-    await projectRespository.updateClientLinkToken(projectId, clientLinkToken);
+    await projectRepository.updateClientLinkToken(projectId, clientLinkToken);
   }
 
   const baseUrl = process.env.CLIENT_URL;
