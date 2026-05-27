@@ -560,8 +560,10 @@ const getClientProjectByToken = async (token) => {
     _id: project._id,
     projectName: project.projectName,
     clientName: project.clientName,
+    clientEmail: project.clientEmail,
     freelancerName: project.freelancerName,
     amount: project.amount,
+    status: project.status,
     dueDate: project.dueDate,
     deliverables: project.deliverables.map(d => ({
       item: d.item,
