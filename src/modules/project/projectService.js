@@ -492,8 +492,8 @@ const generateClientLink = async (projectId, freelancerId) => {
     await projectRespository.updateClientLinkToken(projectId, clientLinkToken);
   }
 
-  const baseUrl = process.env.FRONTEND_URL;
-  const clientLink = `${baseUrl}client/project/${clientLinkToken}`;
+  const baseUrl = process.env.CLIENT_URL;
+  const clientLink = `${baseUrl}/c/project/${clientLinkToken}`;
 
 
   try {
@@ -647,6 +647,7 @@ const formattedDeliverables = deliverables.map((d) => ({
     freelancerName: project.freelancerName,
     clientName: project.clientName,
     clientEmail: project.clientEmail,
+    clientPhone: project.clientPhone,
     clientConfirmed: project.clientConfirmedAt,
     clientConfirmedAt:project.clientConfirmedAt ,
     totalAmount: totalAmount,
@@ -1179,7 +1180,6 @@ const submitRevisedDeliverable = async (projectId, deliverableId, submissionData
     amount: deliverable.amount,
     supportingLinks: deliverable.supportingLinks || [],
     submissionNotes: deliverable.submissionNotes,
-    fileUrl: deliverable.fileUrl,
     submittedAt: deliverable.submittedAt,
     approvedAt: deliverable.approvedAt,
     version: deliverable.version
@@ -1202,7 +1202,7 @@ const submitRevisedDeliverable = async (projectId, deliverableId, submissionData
   await projectRepository.pushActivity(projectId, {
     action: 'deliverable_revised',
     description: `Freelancer completed revision for "${deliverable.item}" (v${deliverable.version})`,
-    performedBy: 'freelancer',
+    performedBy: 'client',
     performedByName: project.freelancerName,
     metadata: {
       deliverableId: deliverableId,
@@ -1213,8 +1213,24 @@ const submitRevisedDeliverable = async (projectId, deliverableId, submissionData
     }
   });
   
-  return project;
-};
+  return {
+    id: project._id,
+    freelancerId: project.freelancerId,
+    freelancerName: project.freelancerName,
+    projectName: project.projectName,
+    clientName: project.clientName,
+    clientEmail: project.clientEmail,
+    totalAmount: project.totalAmount,
+    dueDate: project.dueDate,
+    deliverables: project.deliverables.map(d => ({
+      deliverableId: d._id,
+      item: d.item,
+      amount: d.amount,
+      status: d.status
+    }))
+  };
+  };
+
 
 const getDeliverableHistory = async (projectId, deliverableId, freelancerId) => {
   const project = await projectRepository.findById(projectId);
