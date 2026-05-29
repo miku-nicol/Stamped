@@ -828,7 +828,7 @@ const sendConfirmationOTP = async (token) => {
   return {
     success: true,
     message: "Verification code sent to your email",
-    expiresIn: 10 // minutes
+    expiresIn: 5 // minutes
   };
 };
 
