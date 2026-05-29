@@ -582,6 +582,9 @@ const getClientProjectByToken = async (token) => {
       amount: d.amount,
       status: getStatusLabel(d.status),
       version: d.version,
+supportingLinks: d.supportingLinks || [],
+      submissionNotes: d.submissionNotes || null,
+
       hasPreviousVersions: d.hasPreviousVersions
     })),
     clientConfirmed: project.clientConfirmed,
