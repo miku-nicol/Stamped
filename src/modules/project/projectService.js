@@ -541,6 +541,16 @@ const getClientProjectByToken = async (token) => {
     throw new Error("Invaild or expired project link");
   }
 
+  const getStatusLabel = (status) => {
+  switch(status) {
+    case 'pending': return 'Not Started';
+    case 'awaiting_approval': return 'Awaiting Approval';
+    case 'approved': return 'Approved';
+    case 'revision_requested': return 'Revision Requested';
+    default: return status;
+  }
+};
+
   try{
     await projectRepository.pushActivity(project._id, {
       action: 'client_link_opened',
@@ -562,13 +572,17 @@ const getClientProjectByToken = async (token) => {
     clientName: project.clientName,
     clientEmail: project.clientEmail,
     freelancerName: project.freelancerName,
-    amount: project.amount,
+    totalAmount: project.totalAmount,
     status: project.status,
+    currency: project.currency,
     dueDate: project.dueDate,
     deliverables: project.deliverables.map(d => ({
+      deliverableId: d._id,
       item: d.item,
       amount: d.amount,
-      status: d.status
+      status: getStatusLabel(d.status),
+      version: d.version,
+      hasPreviousVersions: d.hasPreviousVersions
     })),
     clientConfirmed: project.clientConfirmed,
     areTermsLocked: project.areTermsLocked,
@@ -595,6 +609,7 @@ const getProjectById = async (projectId, freelancerId) => {
   const totalDeliverables = deliverables.length;
   const approvedDeliverables = deliverables.filter(d => d.status === 'approved').length;
   const pendingDeliverables = deliverables.filter(d => d.status === 'pending').length;
+  const awaitingApprovalDeliverables = deliverables.filter(d => d.status === 'awaiting_approval').length;
   const requestRevisionDeliverables = deliverables.filter(d => d.status === 'request_revision').length;
 
 
@@ -653,7 +668,6 @@ const formattedDeliverables = deliverables.map((d) => ({
     clientConfirmed: project.clientConfirmedAt,
     clientConfirmedAt:project.clientConfirmedAt ,
     totalAmount: totalAmount,
-    paymentStatus: project.paymentStatus,
     areTermsLocked: project.areTermsLocked,
     dueDate: project.dueDate,
     formattedDueDate: formatDate(project.dueDat),
@@ -665,6 +679,7 @@ const formattedDeliverables = deliverables.map((d) => ({
       approved: approvedDeliverables,
       pending: pendingDeliverables,
       requestRevision: requestRevisionDeliverables,
+      awaitingApproval: awaitingApprovalDeliverables,
     },
 
      deliverables: formattedDeliverables,
@@ -919,7 +934,7 @@ const submitDeliverableForApproval = async (projectId, deliverableId, submission
   deliverable.supportingLinks = submissionData.supportingLinks;
   deliverable.submissionNotes = submissionData.submissionNotes || null;
   deliverable.submittedAt = new Date();
-  deliverable.status = 'pending'; // Awaiting client approval
+  deliverable.status = 'awaiting_approval'; // Awaiting client approval
   
   // Clear any previous revision flags
   deliverable.revisionRequestedAt = null;
@@ -1002,6 +1017,11 @@ const approveDeliverable = async (token, deliverableId) => {
   if (!deliverable) {
     throw new Error("Deliverable not found");
   }
+
+   if (deliverable.status !== 'awaiting_approval') {
+    throw new Error("Deliverable is not pending approval");
+  }
+  
   
   if (deliverable.status === 'approved') {
     throw new Error("Deliverable already approved");
@@ -1089,6 +1109,11 @@ const requestRevision = async (token, deliverableId) => {
   if (deliverable.status === 'approved') {
     throw new Error("Cannot request revision on an already approved deliverable");
   }
+
+  if (deliverable.status !== 'awaiting_approval') {
+    throw new Error("Cannot request revision on this deliverable");
+  }
+ 
   
   const clientName = project.clientConfirmedBy || project.clientName || 'Client';
   

@@ -59,7 +59,7 @@ const deliverableSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['approved', 'revision_requested','pending','completed'],
+    enum: ['approved', 'revision_requested','pending','completed', 'awaiting_approval'],
     default: 'pending'
   },
    

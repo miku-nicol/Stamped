@@ -183,7 +183,7 @@ const sendConfirmationOTP = async (
             </div>
           </div>
 
-          <p>This code will expire in <strong>10 minutes</strong>.</p>
+          <p>This code will expire in <strong>5 minutes</strong>.</p>
 
         </div>
 
