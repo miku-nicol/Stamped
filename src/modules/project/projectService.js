@@ -543,7 +543,7 @@ const getClientProjectByToken = async (token) => {
 
   const getStatusLabel = (status) => {
   switch(status) {
-    case 'pending': return 'Not Started';
+    case 'pending': return 'Pending';
     case 'awaiting_approval': return 'Awaiting Approval';
     case 'approved': return 'Approved';
     case 'revision_requested': return 'Revision Requested';
